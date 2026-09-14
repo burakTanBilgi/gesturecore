@@ -1,0 +1,10 @@
+{
+  // The bench is an adapter: it may use the DOM. The core config (../tsconfig.json) may not.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler"
+  },
+  "include": ["./**/*.ts", "../src"]
+}

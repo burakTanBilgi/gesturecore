@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>gesturecore bench</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel-2: #1e222b;
+        --line: #2a2f3a;
+        --text: #d7dbe3;
+        --muted: #8a92a3;
+        --accent: #5cc8ff;
+        --engage: #4dd6c1;
+        --pose: #ffb547;
+        --pinch: #ff5fa2;
+        --ok: #62d26f;
+        --bad: #ff6b6b;
+        --left: #8f9dff;
+        --right: #ffd166;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 12px/1.35 ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+        overflow: hidden;
+      }
+      button, select, input, textarea { font: inherit; color: inherit; }
+      button {
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 3px 8px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); }
+      button.primary { background: #1d3a4d; border-color: #2f6d8f; }
+      select, input[type='number'], input[type='text'], textarea {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 2px 4px;
+      }
+      textarea { width: 100%; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+      code, .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+      header {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 10px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      header h1 { font-size: 13px; margin: 0; font-weight: 600; }
+      header .stat { color: var(--muted); }
+      header .stat b { color: var(--text); font-weight: 500; }
+      header .spacer { flex: 1; }
+
+      main {
+        height: calc(100% - 34px);
+        display: grid;
+        grid-template-columns: minmax(420px, 1.35fr) minmax(300px, 0.9fr) minmax(330px, 1fr);
+        gap: 1px;
+        background: var(--line);
+      }
+      main > section { background: var(--bg); min-height: 0; display: flex; flex-direction: column; }
+
+      /* stage */
+      .stage { position: relative; background: #000; flex: none; }
+      .stage canvas { display: block; width: 100%; height: auto; }
+      .stage video { display: none; }
+      #stageMsg {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        text-align: center; padding: 20px; color: var(--muted); font-size: 13px; pointer-events: none;
+      }
+      #stageMsg.error { color: var(--bad); }
+      .legend { display: flex; gap: 10px; padding: 4px 8px; color: var(--muted); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+      .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+
+      .logbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+      .logbar .spacer { flex: 1; }
+      #log { flex: 1; overflow: auto; padding: 2px 0; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+      #log div { padding: 0 8px; white-space: nowrap; }
+      #log .t { color: var(--muted); display: inline-block; width: 58px; }
+      #log .h { display: inline-block; width: 40px; }
+      #log .h.Left { color: var(--left); }
+      #log .h.Right { color: var(--right); }
+      #log .engage, #log .disengage { color: var(--engage); }
+      #log .pose { color: var(--pose); }
+      #log .pinch { color: var(--pinch); }
+      #log .lost { color: var(--bad); }
+      #log .move { color: var(--muted); }
+
+      /* readout */
+      .col-readout { overflow: auto; }
+      .hand { border-bottom: 1px solid var(--line); padding: 6px 8px 8px; }
+      .hand h2 { margin: 0 0 4px; font-size: 12px; display: flex; gap: 6px; align-items: center; }
+      .hand h2 .name { font-weight: 600; }
+      .hand.Left h2 .name { color: var(--left); }
+      .hand.Right h2 .name { color: var(--right); }
+      .badge { font-size: 10px; padding: 0 5px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
+      .badge.on.engage { color: #06201c; background: var(--engage); border-color: var(--engage); }
+      .badge.on.pinch { color: #2b0615; background: var(--pinch); border-color: var(--pinch); }
+      .badge.on.pose { color: #2a1a00; background: var(--pose); border-color: var(--pose); }
+      .hand.absent .rows { opacity: 0.35; }
+      .row { display: grid; grid-template-columns: 86px 1fr 62px; align-items: center; gap: 6px; height: 16px; }
+      .row .k { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .row .v { text-align: right; font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+      .bar { position: relative; height: 8px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
+      .bar > .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); width: 0; }
+      .bar > .tick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #fff; opacity: 0.7; }
+      .bar > .tick.release { background: var(--pinch); }
+      .bar.centered > .fill { left: 50%; }
+      .row.progress .fill { background: var(--muted); }
+      .row.engage .fill { background: var(--engage); }
+      .row.pose .fill { background: var(--pose); }
+      .row.pinch .fill { background: var(--pinch); }
+      .row.best .k { color: var(--pose); }
+      .sep { height: 5px; }
+
+      /* panel */
+      .tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
+      .tabs button { border: 0; border-radius: 0; background: transparent; padding: 7px 9px; color: var(--muted); border-bottom: 2px solid transparent; }
+      .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+      .tabpane { flex: 1; overflow: auto; padding: 8px 10px 16px; }
+      .tabpane[hidden] { display: none; }
+      fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 10px; padding: 4px 8px 8px; }
+      legend { color: var(--muted); padding: 0 4px; }
+      .ctl { display: grid; grid-template-columns: 104px 1fr 66px; gap: 6px; align-items: center; min-height: 22px; }
+      .ctl label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ctl input[type='range'] { width: 100%; }
+      .ctl input[type='number'] { width: 66px; text-align: right; }
+      .ctl.changed label::after { content: ' •'; color: var(--accent); }
+      .hint { color: var(--muted); margin: 4px 0; }
+      .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+      .err { color: var(--bad); white-space: pre-wrap; }
+      .okmsg { color: var(--ok); }
+      .check { display: flex; gap: 6px; align-items: center; min-height: 22px; }
+
+      .meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0; }
+      .meter div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+      .meter .n { font-size: 17px; font-family: ui-monospace, Consolas, monospace; }
+      .meter .l { color: var(--muted); font-size: 10px; }
+      .verdict.pass { color: var(--ok); }
+      .verdict.fail { color: var(--bad); }
+      #scrollBox {
+        height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
+        outline: 2px solid transparent; transition: outline-color 0.1s;
+      }
+      #scrollBox.dragging { outline-color: var(--pinch); }
+      #scrollBox p { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+      #scrollBox p:nth-child(5n) { background: var(--panel-2); }
+      #scrollBox p b { color: var(--accent); }
+      .sessions { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
+      kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 11px; background: var(--panel-2); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>gesturecore bench</h1>
+      <span class="stat">camera <b id="stCamera">off</b></span>
+      <span class="stat">delegate <b id="stDelegate">–</b></span>
+      <span class="stat">fps <b id="stFps">–</b></span>
+      <span class="stat">detect <b id="stDetect">–</b></span>
+      <span class="stat">core <b id="stCore">–</b></span>
+      <span class="spacer"></span>
+      <span class="stat"><kbd>F</kbd> false activation · <kbd>R</kbd> reset core · <kbd>Space</kbd> pause</span>
+      <button id="btnCamera" class="primary">Start camera</button>
+    </header>
+    <main>
+      <section class="col-stage">
+        <div class="stage">
+          <canvas id="overlay" width="640" height="480"></canvas>
+          <video id="video" playsinline muted></video>
+          <div id="stageMsg">Press <b>&nbsp;Start camera&nbsp;</b> and allow camera access.</div>
+        </div>
+        <div class="legend">
+          <span><i style="background: var(--engage)"></i>engage ring</span>
+          <span><i style="background: var(--pose)"></i>pose ring</span>
+          <span><i style="background: var(--pinch)"></i>pinch ring</span>
+          <span><i style="background: #fff"></i>smoothed</span>
+          <span><i style="background: #777"></i>raw</span>
+          <span>view is mirrored</span>
+        </div>
+        <div class="logbar">
+          <b>Events</b>
+          <label class="check"><input type="checkbox" id="chkMoves" /> each pinch:move</label>
+          <span class="spacer"></span>
+          <button id="btnClearLog">Clear</button>
+        </div>
+        <div id="log"></div>
+      </section>
+
+      <section class="col-readout" id="readout"></section>
+
+      <section class="col-panel">
+        <nav class="tabs" id="tabs">
+          <button data-tab="tuning">Tuning</button>
+          <button data-tab="poses">Poses</button>
+          <button data-tab="scroll">Scroll test</button>
+          <button data-tab="fixtures">Fixtures</button>
+          <button data-tab="source">Source</button>
+        </nav>
+
+        <div class="tabpane" data-pane="tuning">
+          <div class="btns">
+            <button id="btnResetConfig">Reset all to defaults</button>
+            <button id="btnCopyConfig">Copy config JSON</button>
+            <button id="btnImportToggle">Import JSON…</button>
+          </div>
+          <div id="importBox" hidden>
+            <textarea id="importText" rows="6" placeholder="Paste a config JSON object"></textarea>
+            <div class="btns"><button id="btnImportApply" class="primary">Apply</button></div>
+          </div>
+          <div id="configMsg" class="hint"></div>
+          <div id="sliders"></div>
+          <p class="hint">Every change goes straight to <code>core.setConfig()</code> and is saved in this browser only. A dot marks values that differ from the defaults.</p>
+        </div>
+
+        <div class="tabpane" data-pane="poses" hidden>
+          <p class="hint">Poses are plain data. Edit the JSON and apply; changes take effect on the next frame. Curl ranges are inclusive, 0 = straight, 1 = fully bent.</p>
+          <textarea id="posesText" rows="22"></textarea>
+          <div class="btns">
+            <button id="btnPosesApply" class="primary">Apply poses</button>
+            <button id="btnPosesReset">Reset to defaults</button>
+          </div>
+          <div id="posesMsg"></div>
+        </div>
+
+        <div class="tabpane" data-pane="scroll" hidden>
+          <fieldset>
+            <legend>False-activation session</legend>
+            <p class="hint">Start a session and use the page normally: type, reach, rest your hands, pinch-scroll when you mean to. Press <kbd>F</kbd> each time a pinch starts that you did <i>not</i> intend. Target: fewer than 2 per 10 minutes.</p>
+            <div class="meter">
+              <div><div class="n" id="mElapsed">0:00</div><div class="l">elapsed</div></div>
+              <div><div class="n" id="mActs">0</div><div class="l">pinch starts</div></div>
+              <div><div class="n" id="mFalse">0</div><div class="l">false (F)</div></div>
+              <div><div class="n" id="mRate">–</div><div class="l">false / 10 min</div></div>
+            </div>
+            <div class="btns">
+              <button id="btnSession" class="primary">Start session</button>
+              <button id="btnSessionReset">Reset</button>
+              <span id="mVerdict" class="verdict"></span>
+            </div>
+            <div class="sessions" id="sessionHistory"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Pinch to scroll</legend>
+            <div class="ctl"><label>hand</label>
+              <select id="scrollHand"><option value="any">either</option><option value="Left">Left</option><option value="Right">Right</option></select><span></span></div>
+            <div class="ctl"><label>gain</label><input type="range" id="scrollGain" min="0.5" max="12" step="0.1" /><input type="number" id="scrollGainN" min="0.5" max="12" step="0.1" /></div>
+            <label class="check"><input type="checkbox" id="scrollInvert" /> invert direction</label>
+            <p class="hint">Engage (hold the engage pose), then pinch and move your hand up or down, like dragging a page.</p>
+            <div id="scrollBox"></div>
+          </fieldset>
+        </div>
+
+        <div class="tabpane" data-pane="fixtures" hidden>
+          <p class="hint">Records a real hand into the test fixture format: 21 points averaged over several frames, stored isotropic (aspect already applied). Saving writes <code>test/fixtures/&lt;name&gt;.json</code>; run <code>npm test</code> afterward.</p>
+          <div class="ctl"><label>fixture</label>
+            <select id="fxName"><option>open</option><option>fist</option><option>point</option><option>pinch</option><option value="custom">custom…</option></select><span></span></div>
+          <div class="ctl" id="fxCustomRow" hidden><label>custom name</label><input type="text" id="fxCustom" placeholder="e.g. thumbs-up" /><span></span></div>
+          <div class="ctl"><label>hand</label>
+            <select id="fxHand"><option>Right</option><option>Left</option></select><span></span></div>
+          <div class="ctl"><label>frames to average</label><input type="range" id="fxFrames" min="1" max="60" step="1" value="15" /><input type="number" id="fxFramesN" min="1" max="60" step="1" value="15" /></div>
+          <div class="ctl"><label>countdown (s)</label><input type="range" id="fxDelay" min="0" max="10" step="1" value="3" /><input type="number" id="fxDelayN" min="0" max="10" step="1" value="3" /></div>
+          <div class="btns"><button id="btnCapture" class="primary">Capture</button></div>
+          <div id="fxStatus" class="hint"></div>
+          <div id="fxPreview" class="mono hint"></div>
+          <textarea id="fxJson" rows="10" placeholder="Captured JSON appears here"></textarea>
+          <div class="btns">
+            <button id="btnFxSave">Save to test/fixtures</button>
+            <button id="btnFxCopy">Copy JSON</button>
+          </div>
+          <div id="fxMsg"></div>
+        </div>
+
+        <div class="tabpane" data-pane="source" hidden>
+          <fieldset>
+            <legend>Camera</legend>
+            <div class="ctl"><label>device</label><select id="srcDevice"><option value="">default</option></select><span></span></div>
+            <div class="ctl"><label>resolution</label>
+              <select id="srcRes"><option>320x240</option><option>640x480</option><option>1280x720</option></select><span></span></div>
+            <div class="ctl"><label>aspect (auto)</label><span class="mono" id="srcAspect">–</span><span></span></div>
+          </fieldset>
+          <fieldset>
+            <legend>Handedness</legend>
+            <label class="check"><input type="checkbox" id="srcFlip" /> flip MediaPipe's handedness label</label>
+            <p class="hint">Check: raise only your <b>right</b> hand. The readout should say <b>Right</b>. If it says Left, toggle this. The core expects the user's anatomical hand.</p>
+          </fieldset>
+          <fieldset>
+            <legend>MediaPipe</legend>
+            <div class="ctl"><label>delegate</label><select id="srcDelegate"><option>GPU</option><option>CPU</option></select><span></span></div>
+            <div id="mpSliders"></div>
+          </fieldset>
+          <fieldset>
+            <legend>Overlay</legend>
+            <label class="check"><input type="checkbox" id="ovRaw" /> raw skeleton</label>
+            <label class="check"><input type="checkbox" id="ovSmooth" /> smoothed skeleton (same One Euro settings as the core)</label>
+            <label class="check"><input type="checkbox" id="ovVideo" /> camera image</label>
+          </fieldset>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./bench.ts"></script>
+  </body>
+</html>

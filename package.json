@@ -19,7 +19,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p bench/tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "bench": "vite --open /bench/index.html",
+    "bench": "vite",
     "fetch-model": "node scripts/fetch-model.mjs"
   },
   "devDependencies": {
