@@ -1,0 +1,32 @@
+{
+  "name": "gesturecore",
+  "version": "0.1.0",
+  "description": "Turns MediaPipe hand landmarks into clean, debounced gesture events.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p bench/tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "bench": "vite --open /bench/index.html",
+    "fetch-model": "node scripts/fetch-model.mjs"
+  },
+  "devDependencies": {
+    "@mediapipe/tasks-vision": "1.0.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  },
+  "license": "MIT"
+}
