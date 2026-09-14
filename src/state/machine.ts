@@ -1,6 +1,6 @@
 import { defaultConfig, mergeConfig } from '../config.js';
-import { extractFeatures } from '../features/extract.js';
-import { LANDMARK_COUNT } from '../features/geometry.js';
+import { extractFeatures, PINCH_FINGERS } from '../features/extract.js';
+import { LANDMARK_COUNT, unlerp } from '../features/geometry.js';
 import { LandmarkSmoother } from '../filter/oneEuro.js';
 import { bestPose, matchPoses } from '../poses/match.js';
 import type {
@@ -11,6 +11,7 @@ import type {
   Hand,
   HandLabel,
   HandState,
+  PinchFinger,
   PoseMatch,
 } from '../types.js';
 
@@ -46,8 +47,11 @@ type Track = {
   /** When the engage pose started being held continuously, while not engaged. */
   engageSince: number | null;
 
-  /** Hysteresis state of thumb/index closure. */
-  pinchClosed: boolean;
+  /**
+   * Hysteresis state: the finger the thumb is closed on, or null when open.
+   * Before pinch:start it follows the closest enabled finger; after, it is locked.
+   */
+  pinchFinger: PinchFinger | null;
   pinchSince: number;
   /** pinch:start has been emitted and pinch:end has not. */
   pinched: boolean;
@@ -114,10 +118,11 @@ export class GestureCore {
           ? 0
           : progress(this.now - tr.engageSince, c.engage.dwellMs),
       pinched: tr.pinched,
-      pinchClosed: tr.pinchClosed,
+      pinchClosed: tr.pinchFinger !== null,
+      pinchFinger: tr.pinchFinger,
       pinchProgress: tr.pinched
         ? 1
-        : tr.pinchClosed && tr.engaged
+        : tr.pinchFinger !== null && tr.engaged
           ? progress(this.now - Math.max(tr.pinchSince, tr.engagedAt), c.dwellMs)
           : 0,
       pose: tr.pose,
@@ -173,7 +178,7 @@ export class GestureCore {
         engaged: false,
         engagedAt: t,
         engageSince: null,
-        pinchClosed: false,
+        pinchFinger: null,
         pinchSince: t,
         pinched: false,
         pose: null,
@@ -198,25 +203,37 @@ export class GestureCore {
       }
     }
 
-    // Pinch: two-threshold hysteresis on pinchRaw, then dwell before start.
+    // Pinch: two-threshold hysteresis on thumb ↔ fingertip distance, then dwell before start.
     const h = c.pinch.hysteresis;
     const closeBelow = c.pinch.closed + h;
     const releaseAbove = c.pinch.closed + 3 * h;
-    if (!tr.pinchClosed && features.pinchRaw < closeBelow) {
-      tr.pinchClosed = true;
-      tr.pinchSince = t;
-    } else if (tr.pinchClosed && features.pinchRaw > releaseAbove) {
-      tr.pinchClosed = false;
-      if (tr.pinched) {
-        tr.pinched = false;
-        events.push({ type: 'pinch:end', hand: label, t });
+    const raws = features.pinchRaws;
+    const enabled = PINCH_FINGERS.filter((f) => c.pinch.fingers.includes(f));
+    let closest: PinchFinger | null = null;
+    for (const f of enabled) if (closest === null || raws[f] < raws[closest]) closest = f;
+
+    if (tr.pinchFinger !== null) {
+      // During dwell the thumb may settle on a neighbouring finger without restarting the timer.
+      if (!tr.pinched && closest !== null) tr.pinchFinger = closest;
+      const disabled = !enabled.includes(tr.pinchFinger);
+      if (disabled || raws[tr.pinchFinger] > releaseAbove) {
+        if (tr.pinched) {
+          tr.pinched = false;
+          events.push({ type: 'pinch:end', hand: label, finger: tr.pinchFinger, t });
+        }
+        tr.pinchFinger = null;
       }
     }
-    if (tr.pinched) {
-      events.push({ type: 'pinch:move', hand: label, value: features.pinch, t });
-    } else if (tr.pinchClosed && tr.engaged && t - Math.max(tr.pinchSince, tr.engagedAt) >= c.dwellMs) {
+    if (tr.pinchFinger === null && closest !== null && raws[closest] < closeBelow) {
+      tr.pinchFinger = closest;
+      tr.pinchSince = t;
+    }
+    if (tr.pinched && tr.pinchFinger !== null) {
+      const value = unlerp(raws[tr.pinchFinger], c.pinch.closed, c.pinch.open);
+      events.push({ type: 'pinch:move', hand: label, finger: tr.pinchFinger, value, t });
+    } else if (tr.pinchFinger !== null && tr.engaged && t - Math.max(tr.pinchSince, tr.engagedAt) >= c.dwellMs) {
       tr.pinched = true;
-      events.push({ type: 'pinch:start', hand: label, t });
+      events.push({ type: 'pinch:start', hand: label, finger: tr.pinchFinger, t });
     }
 
     // Pose: the best qualifying pose must hold for dwellMs; fires once per hold.
@@ -241,7 +258,7 @@ export class GestureCore {
   private checkLost(label: HandLabel, t: number, events: GestureEvent[]): void {
     const tr = this.tracks.get(label);
     if (!tr || t - tr.lastSeen <= this.config.lostAfterMs) return;
-    if (tr.pinched) events.push({ type: 'pinch:end', hand: label, t });
+    if (tr.pinched && tr.pinchFinger !== null) events.push({ type: 'pinch:end', hand: label, finger: tr.pinchFinger, t });
     if (tr.engaged) events.push({ type: 'disengage', hand: label, t });
     events.push({ type: 'lost', hand: label, t });
     this.tracks.delete(label);

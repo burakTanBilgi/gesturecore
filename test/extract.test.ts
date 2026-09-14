@@ -14,7 +14,7 @@ const pinch = loadFixture('pinch');
 
 /** Features that must not change when the hand moves, scales or rotates in the image plane. */
 function invariant(x: Features) {
-  return { pinch: x.pinch, pinchRaw: x.pinchRaw, openness: x.openness, curls: x.curls };
+  return { pinch: x.pinch, pinchRaws: Object.values(x.pinchRaws), openness: x.openness, curls: x.curls };
 }
 
 function expectClose(a: object, b: object, digits = 9) {
@@ -27,9 +27,18 @@ function expectClose(a: object, b: object, digits = 9) {
 describe('extractFeatures: shape and contract', () => {
   it('returns exactly the public feature keys', () => {
     expect(Object.keys(f(open)).sort()).toEqual(
-      ['centroid', 'curls', 'openness', 'pinch', 'pinchRaw', 'span', 'tilt'].sort(),
+      ['centroid', 'curls', 'openness', 'pinch', 'pinchRaw', 'pinchRaws', 'span', 'tilt'].sort(),
     );
     expect(f(open).curls).toHaveLength(5);
+    expect(Object.keys(f(open).pinchRaws)).toEqual(['index', 'middle', 'ring', 'pinky']);
+  });
+
+  it('pinchRaws measures the thumb tip against every fingertip; index equals pinchRaw', () => {
+    for (const finger of ['index', 'middle', 'ring', 'pinky'] as const) {
+      const x = f(withPinchRaw(open, 0.123, finger));
+      expect(x.pinchRaws[finger]).toBeCloseTo(0.123, 9);
+      expect(x.pinchRaws.index).toBe(x.pinchRaw);
+    }
   });
 
   it.each(FIXTURE_NAMES)('%s: every value is finite and in range', (name) => {

@@ -115,6 +115,7 @@
       .hand.absent .rows { opacity: 0.35; }
       .row { display: grid; grid-template-columns: 86px 1fr 62px; align-items: center; gap: 6px; height: 16px; }
       .row .k { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      header .check { color: var(--muted); }
       .row .v { text-align: right; font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
       .bar { position: relative; height: 8px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
       .bar > .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); width: 0; }
@@ -126,6 +127,10 @@
       .row.pose .fill { background: var(--pose); }
       .row.pinch .fill { background: var(--pinch); }
       .row.best .k { color: var(--pose); }
+      .multibar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+      .multibar .bar.active > .fill { background: var(--pinch); }
+      .multibar .bar > .fill { background: #6f7a8f; }
+      .fingers { display: flex; gap: 8px; flex-wrap: wrap; }
       .sep { height: 5px; }
 
       /* panel */
@@ -174,7 +179,9 @@
       <span class="stat">detect <b id="stDetect">–</b></span>
       <span class="stat">core <b id="stCore">–</b></span>
       <span class="spacer"></span>
-      <span class="stat"><kbd>F</kbd> false activation · <kbd>R</kbd> reset core · <kbd>Space</kbd> pause</span>
+      <label class="check" title="Flip the camera image (and the coordinates the core receives) horizontally"><input type="checkbox" id="hdrMirror" /> mirror view</label>
+      <label class="check" title="Raise only your right hand: it should be labelled Right. If not, tick this."><input type="checkbox" id="hdrSwap" /> swap L/R</label>
+      <span class="stat"><kbd>F</kbd> false · <kbd>R</kbd> reset · <kbd>Space</kbd> pause</span>
       <button id="btnCamera" class="primary">Start camera</button>
     </header>
     <main>
@@ -190,7 +197,7 @@
           <span><i style="background: var(--pinch)"></i>pinch ring</span>
           <span><i style="background: #fff"></i>smoothed</span>
           <span><i style="background: #777"></i>raw</span>
-          <span>view is mirrored</span>
+          <span id="legendMirror">view is mirrored</span>
         </div>
         <div class="logbar">
           <b>Events</b>
@@ -258,6 +265,8 @@
             <legend>Pinch to scroll</legend>
             <div class="ctl"><label>hand</label>
               <select id="scrollHand"><option value="any">either</option><option value="Left">Left</option><option value="Right">Right</option></select><span></span></div>
+            <div class="ctl"><label>pinch finger</label>
+              <select id="scrollFinger"><option value="any">any</option><option>index</option><option>middle</option><option>ring</option><option>pinky</option></select><span></span></div>
             <div class="ctl"><label>gain</label><input type="range" id="scrollGain" min="0.5" max="12" step="0.1" /><input type="number" id="scrollGainN" min="0.5" max="12" step="0.1" /></div>
             <label class="check"><input type="checkbox" id="scrollInvert" /> invert direction</label>
             <p class="hint">Engage (hold the engage pose), then pinch and move your hand up or down, like dragging a page.</p>
@@ -294,9 +303,9 @@
             <div class="ctl"><label>aspect (auto)</label><span class="mono" id="srcAspect">–</span><span></span></div>
           </fieldset>
           <fieldset>
-            <legend>Handedness</legend>
-            <label class="check"><input type="checkbox" id="srcFlip" /> flip MediaPipe's handedness label</label>
-            <p class="hint">Check: raise only your <b>right</b> hand. The readout should say <b>Right</b>. If it says Left, toggle this. The core expects the user's anatomical hand.</p>
+            <legend>Orientation</legend>
+            <p class="hint"><b>mirror view</b> (header) flips the image like a mirror, so moving your hand right moves it right on screen. It also flips the x coordinates the core receives.</p>
+            <p class="hint"><b>swap L/R</b> (header) only changes the Left/Right label. Raise only your <b>right</b> hand: it should say <b>Right</b>. The two settings are independent.</p>
           </fieldset>
           <fieldset>
             <legend>MediaPipe</legend>

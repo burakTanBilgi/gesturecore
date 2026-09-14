@@ -46,16 +46,41 @@ export function mirror(landmarks: Landmark[]): Landmark[] {
   return landmarks.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z }));
 }
 
+const TIPS = { index: 8, middle: 12, ring: 16, pinky: 20 } as const;
+export type TipName = keyof typeof TIPS;
+
+function spanOf(pts: Landmark[]): number {
+  const w = pts[0]!;
+  const m = pts[9]!;
+  return Math.hypot(m.x - w.x, m.y - w.y, m.z - w.z);
+}
+
 /**
- * Copy of `landmarks` with the thumb tip placed so that dist(4, 8) / span equals `ratio`
- * exactly (in the isotropic frame), keeping its original direction from the index tip.
+ * Copy of `landmarks` with fingertips moved so thumb-tip ↔ fingertip / span equals the given
+ * ratio exactly, each along its original direction from the (unchanged) thumb tip.
  */
-export function withPinchRaw(landmarks: Landmark[], ratio: number): Landmark[] {
+export function withThumbDistances(landmarks: Landmark[], ratios: Partial<Record<TipName, number>>): Landmark[] {
   const out = clone(landmarks);
-  const w = out[0]!;
-  const m = out[9]!;
-  const span = Math.hypot(m.x - w.x, m.y - w.y, m.z - w.z);
-  const tip = out[8]!;
+  const span = spanOf(out);
+  const th = out[4]!;
+  for (const [name, ratio] of Object.entries(ratios) as [TipName, number][]) {
+    const tip = out[TIPS[name]]!;
+    const d = [tip.x - th.x, tip.y - th.y, tip.z - th.z];
+    const len = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+    const k = (ratio * span) / len;
+    out[TIPS[name]] = { x: th.x + d[0]! * k, y: th.y + d[1]! * k, z: th.z + d[2]! * k };
+  }
+  return out;
+}
+
+/**
+ * Copy of `landmarks` with the thumb tip placed so that dist(thumb tip, finger tip) / span equals
+ * `ratio` exactly (in the isotropic frame), keeping its original direction from that fingertip.
+ */
+export function withPinchRaw(landmarks: Landmark[], ratio: number, finger: TipName = 'index'): Landmark[] {
+  const out = clone(landmarks);
+  const span = spanOf(out);
+  const tip = out[TIPS[finger]]!;
   const th = out[4]!;
   let dx = th.x - tip.x;
   let dy = th.y - tip.y;

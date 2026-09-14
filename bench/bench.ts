@@ -16,7 +16,9 @@ import {
   type Hand,
   type HandLabel,
   type Landmark,
+  type PinchFinger,
   type PoseDescription,
+  PINCH_FINGERS,
 } from '../src/index';
 import { extractFeatures } from '../src/features/extract';
 import { LandmarkSmoother } from '../src/filter/oneEuro';
@@ -42,7 +44,8 @@ const fmt = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '–');
 
 const LS = {
   config: 'gesturecore.bench.config.v1',
-  settings: 'gesturecore.bench.settings.v1',
+  settingsV1: 'gesturecore.bench.settings.v1',
+  settings: 'gesturecore.bench.settings.v2',
   sessions: 'gesturecore.bench.sessions.v1',
 };
 
@@ -65,6 +68,7 @@ function save(key: string, value: unknown): void {
 
 type BenchSettings = {
   tab: string;
+  mirror: boolean;
   flipHandedness: boolean;
   deviceId: string;
   resolution: string;
@@ -77,13 +81,16 @@ type BenchSettings = {
   showVideo: boolean;
   showMoves: boolean;
   scrollHand: 'any' | HandLabel;
+  scrollFinger: 'any' | PinchFinger;
   scrollGain: number;
   scrollInvert: boolean;
 };
 
 const DEFAULT_SETTINGS: BenchSettings = {
   tab: 'tuning',
-  flipHandedness: true,
+  mirror: true,
+  // Verified on the target laptop: MediaPipe's label is already anatomical for the unmirrored frame.
+  flipHandedness: false,
   deviceId: '',
   resolution: '640x480',
   delegate: 'GPU',
@@ -95,11 +102,20 @@ const DEFAULT_SETTINGS: BenchSettings = {
   showVideo: true,
   showMoves: false,
   scrollHand: 'any',
+  scrollFinger: 'any',
   scrollGain: 4,
   scrollInvert: false,
 };
 
-const settings: BenchSettings = { ...DEFAULT_SETTINGS, ...(load<Partial<BenchSettings>>(LS.settings) ?? {}) };
+/** v1 settings carried a wrong handedness-flip default; keep everything else from them. */
+function loadSettings(): Partial<BenchSettings> {
+  const v2 = load<Partial<BenchSettings>>(LS.settings);
+  if (v2) return v2;
+  const { flipHandedness: _dropped, ...rest } = load<Partial<BenchSettings>>(LS.settingsV1) ?? {};
+  return rest;
+}
+
+const settings: BenchSettings = { ...DEFAULT_SETTINGS, ...loadSettings() };
 const saveSettings = () => save(LS.settings, settings);
 
 // ── core ─────────────────────────────────────────────────────────────────────
@@ -173,7 +189,7 @@ async function createLandmarker(): Promise<void> {
   }
 }
 
-/** MediaPipe result → core Hands: mirror into selfie view, anatomical handedness. */
+/** MediaPipe result → core Hands: optional selfie mirroring, anatomical handedness. */
 function toHands(res: HandLandmarkerResult): Hand[] {
   return res.landmarks.map((lms, i) => {
     const cat = res.handedness[i]?.[0];
@@ -182,10 +198,12 @@ function toHands(res: HandLandmarkerResult): Hand[] {
     return {
       handedness: label,
       score: cat?.score ?? 0,
-      landmarks: lms.map((p) => ({ x: 1 - p.x, y: p.y, z: p.z })),
+      landmarks: lms.map((p) => ({ x: settings.mirror ? 1 - p.x : p.x, y: p.y, z: p.z })),
     };
   });
 }
+
+const TIP: Record<PinchFinger, number> = { index: 8, middle: 12, ring: 16, pinky: 20 };
 
 async function startCamera(): Promise<void> {
   const btn = $<HTMLButtonElement>('btnCamera');
@@ -332,7 +350,8 @@ function log(e: GestureEvent): void {
   const cls = e.type === 'pinch:move' ? 'move' : e.type.startsWith('pinch') ? 'pinch' : e.type;
   let detail = '';
   if (e.type === 'pose') detail = ` ${e.name}`;
-  if (e.type === 'pinch:move') detail = ` ${fmt(e.value, 3)}`;
+  if (e.type === 'pinch:start' || e.type === 'pinch:end') detail = ` ${e.finger}`;
+  if (e.type === 'pinch:move') detail = ` ${e.finger} ${fmt(e.value, 3)}`;
   const node = el('div', {}, [
     el('span', { className: 't', textContent: ((e.t - t0) / 1000).toFixed(2) }),
     el('span', { className: `h ${e.hand}`, textContent: e.hand }),
@@ -357,7 +376,9 @@ const scroll = (() => {
   }
 
   function onEvent(e: GestureEvent): void {
-    const wants = settings.scrollHand === 'any' || settings.scrollHand === e.hand;
+    const wants =
+      (settings.scrollHand === 'any' || settings.scrollHand === e.hand) &&
+      (e.type !== 'pinch:start' || settings.scrollFinger === 'any' || settings.scrollFinger === e.finger);
     if (e.type === 'pinch:start' && wants && !drag) {
       const f = core.getFeatures(e.hand);
       if (f) drag = { hand: e.hand, y0: f.centroid.y, s0: box.scrollTop };
@@ -521,7 +542,11 @@ function draw(): void {
   const W = canvas.width;
   const H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  if (settings.showVideo && running) {
+  if (settings.showVideo && running && !settings.mirror) {
+    ctx.drawImage(video, 0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(0, 0, W, H);
+  } else if (settings.showVideo && running) {
     ctx.save();
     ctx.translate(W, 0);
     ctx.scale(-1, 1);
@@ -551,13 +576,15 @@ function draw(): void {
     ring(cx, cy, r, st.poseProgress, COLORS.pose, st.poseProgress >= 1);
 
     const src = lastSmoothed.get(label) ?? lastHands.find((h) => h.handedness === label)?.landmarks;
-    if (src && (st.pinchClosed || st.pinched)) {
-      const mx = ((src[4]!.x + src[8]!.x) / 2) * W;
-      const my = ((src[4]!.y + src[8]!.y) / 2) * H;
+    if (src && st.pinchFinger) {
+      const tip = src[TIP[st.pinchFinger]]!;
+      const mx = ((src[4]!.x + tip.x) / 2) * W;
+      const my = ((src[4]!.y + tip.y) / 2) * H;
       ring(mx, my, 14, st.pinchProgress, COLORS.pinch, st.pinched);
     }
 
-    const text = `${label}${st.pose ? ` · ${st.pose}` : ''}${st.engaged ? ' · engaged' : ''}${st.pinched ? ' · PINCH' : ''}`;
+    const pinchText = st.pinched ? ` · PINCH ${st.pinchFinger}` : '';
+    const text = `${label}${st.pose ? ` · ${st.pose}` : ''}${st.engaged ? ' · engaged' : ''}${pinchText}`;
     ctx.font = '600 14px system-ui, sans-serif';
     const tw = ctx.measureText(text).width;
     const tx = Math.min(Math.max(cx - tw / 2, 4), W - tw - 4);
@@ -585,6 +612,24 @@ function makeRow(parent: HTMLElement, label: string, extraClass = '', ticks = 0,
 
 const FINGER_NAMES = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 
+type FingerBars = { value: HTMLElement; bars: Record<PinchFinger, { bar: HTMLElement; fill: HTMLElement; ticks: HTMLElement[] }> };
+
+/** One row, four small bars: thumb-tip ↔ index/middle/ring/pinky tip, with close/release ticks. */
+function makeFingerRow(parent: HTMLElement): FingerBars {
+  const grid = el('div', { className: 'multibar' });
+  const bars = {} as FingerBars['bars'];
+  for (const f of PINCH_FINGERS) {
+    const fill = el('div', { className: 'fill' });
+    const ticks = [el('div', { className: 'tick' }), el('div', { className: 'tick release' })];
+    const bar = el('div', { className: 'bar', title: `thumb ↔ ${f}` }, [fill, ...ticks]);
+    grid.append(bar);
+    bars[f] = { bar, fill, ticks };
+  }
+  const value = el('div', { className: 'v' });
+  parent.append(el('div', { className: 'row' }, [el('div', { className: 'k', textContent: 'thumb→i m r p' }), grid, value]));
+  return { value, bars };
+}
+
 function buildHandCard(label: HandLabel) {
   const rows = el('div', { className: 'rows' });
   const badges = {
@@ -598,7 +643,7 @@ function buildHandCard(label: HandLabel) {
   ]);
   const r = {
     pinch: makeRow(rows, 'pinch'),
-    pinchRaw: makeRow(rows, 'pinchRaw', '', 2),
+    pinchRaws: makeFingerRow(rows),
     openness: makeRow(rows, 'openness'),
     curls: FINGER_NAMES.map((n) => makeRow(rows, `curl ${n}`)),
     tilt: makeRow(rows, 'tilt', '', 0, true),
@@ -634,6 +679,7 @@ function renderReadout(): void {
     c.card.classList.toggle('absent', !f);
     c.badges.engaged.classList.toggle('on', !!st?.engaged);
     c.badges.pinched.classList.toggle('on', !!st?.pinched);
+    c.badges.pinched.textContent = st?.pinchFinger ? `pinch ${st.pinchFinger}` : 'pinch';
     c.badges.pose.classList.toggle('on', !!st?.pose && st.poseProgress >= 1);
     c.badges.pose.textContent = st?.pose ?? 'no pose';
 
@@ -649,10 +695,19 @@ function renderReadout(): void {
     }
 
     setBar(c.r.pinch, f.pinch, fmt(f.pinch));
-    setBar(c.r.pinchRaw, f.pinchRaw / RAW_SCALE, fmt(f.pinchRaw));
     const h = cfg.pinch.hysteresis;
-    c.r.pinchRaw.ticks[0]!.style.left = `${((cfg.pinch.closed + h) / RAW_SCALE) * 100}%`;
-    c.r.pinchRaw.ticks[1]!.style.left = `${((cfg.pinch.closed + 3 * h) / RAW_SCALE) * 100}%`;
+    let closest: PinchFinger = 'index';
+    for (const finger of PINCH_FINGERS) {
+      const b = c.r.pinchRaws.bars[finger];
+      const enabled = cfg.pinch.fingers.includes(finger);
+      b.fill.style.width = `${Math.min(1, f.pinchRaws[finger] / RAW_SCALE) * 100}%`;
+      b.bar.style.opacity = enabled ? '1' : '0.3';
+      b.bar.classList.toggle('active', st.pinchFinger === finger);
+      b.ticks[0]!.style.left = `${((cfg.pinch.closed + h) / RAW_SCALE) * 100}%`;
+      b.ticks[1]!.style.left = `${((cfg.pinch.closed + 3 * h) / RAW_SCALE) * 100}%`;
+      if (f.pinchRaws[finger] < f.pinchRaws[closest]) closest = finger;
+    }
+    c.r.pinchRaws.value.textContent = `${closest[0]} ${fmt(f.pinchRaws[closest], 2)}`;
     setBar(c.r.openness, f.openness, fmt(f.openness));
     f.curls.forEach((v, i) => setBar(c.r.curls[i]!, v, fmt(v)));
     const tiltFrac = f.tilt / Math.PI / 2; // -0.5..0.5 of the bar, drawn from centre
@@ -761,6 +816,27 @@ function buildSliders(): void {
     const fs = el('fieldset', {}, [el('legend', { textContent: group.legend })]);
     if (group.legend === 'Timing') {
       fs.append(el('div', { className: 'ctl' }, [el('label', { textContent: 'engage pose' }), engageSel, el('span')]));
+    }
+    if (group.legend.startsWith('Pinch')) {
+      const boxes = PINCH_FINGERS.map((finger) => {
+        const box = el('input', { type: 'checkbox' });
+        box.addEventListener('change', () => {
+          const fingers = PINCH_FINGERS.filter((x, i) => (x === finger ? box.checked : boxes[i]!.checked));
+          applyConfig({ pinch: { fingers } });
+        });
+        return box;
+      });
+      sliderRefresh.push(() => {
+        const on = core.getConfig().pinch.fingers;
+        PINCH_FINGERS.forEach((x, i) => (boxes[i]!.checked = on.includes(x)));
+      });
+      fs.append(
+        el('div', { className: 'ctl' }, [
+          el('label', { textContent: 'pinch fingers' }),
+          el('div', { className: 'fingers' }, PINCH_FINGERS.map((x, i) => el('label', { className: 'check' }, [boxes[i]!, x]))),
+          el('span'),
+        ]),
+      );
     }
     for (const spec of group.specs) {
       const range = el('input', { type: 'range', min: '0', max: '1000', step: '1', title: spec.title ?? '' });
@@ -1005,9 +1081,24 @@ function bindCheck(id: string, key: { [K in keyof BenchSettings]: BenchSettings[
   });
 }
 
-bindCheck('srcFlip', 'flipHandedness', () => {
+const resetTracking = () => {
   core.reset();
   smoothers.clear();
+  lastHands = [];
+  lastSmoothed.clear();
+  $('legendMirror').textContent = settings.mirror ? 'view is mirrored' : 'view is not mirrored';
+  draw();
+  renderReadout();
+};
+bindCheck('hdrSwap', 'flipHandedness', resetTracking);
+bindCheck('hdrMirror', 'mirror', resetTracking);
+$('legendMirror').textContent = settings.mirror ? 'view is mirrored' : 'view is not mirrored';
+
+const scrollFingerSel = $<HTMLSelectElement>('scrollFinger');
+scrollFingerSel.value = settings.scrollFinger;
+scrollFingerSel.addEventListener('change', () => {
+  settings.scrollFinger = scrollFingerSel.value as BenchSettings['scrollFinger'];
+  saveSettings();
 });
 bindCheck('ovRaw', 'showRaw', draw);
 bindCheck('ovSmooth', 'showSmoothed', draw);

@@ -6,7 +6,7 @@ describe('config', () => {
   it('ships the specified defaults', () => {
     const c = defaultConfig();
     expect(c.smoothing).toEqual({ minCutoff: 1.0, beta: 0.007, dCutoff: 1.0 });
-    expect(c.pinch).toEqual({ closed: 0.15, open: 0.75, hysteresis: 0.05 });
+    expect(c.pinch).toEqual({ closed: 0.15, open: 0.75, hysteresis: 0.05, fingers: ['index', 'middle', 'ring', 'pinky'] });
     expect(c.dwellMs).toBe(300);
     expect(c.lostAfterMs).toBe(150);
     expect(c.poses.map((p) => p.name)).toEqual(['fist', 'openPalm', 'point']);
@@ -31,10 +31,20 @@ describe('config', () => {
     const patch = { pinch: { closed: 0.2 }, dwellMs: 400 };
     const snapshot = JSON.stringify(base);
     const merged = mergeConfig(base, patch);
-    expect(merged.pinch).toEqual({ closed: 0.2, open: 0.75, hysteresis: 0.05 });
+    expect(merged.pinch).toEqual({ closed: 0.2, open: 0.75, hysteresis: 0.05, fingers: ['index', 'middle', 'ring', 'pinky'] });
     expect(merged.dwellMs).toBe(400);
     expect(JSON.stringify(base)).toBe(snapshot);
     expect(patch).toEqual({ pinch: { closed: 0.2 }, dwellMs: 400 });
+  });
+
+  it('replaces pinch.fingers as a copied string list and ignores non-string lists', () => {
+    const fingers: ('index' | 'middle')[] = ['middle'];
+    const merged = mergeConfig(defaultConfig(), { pinch: { fingers } });
+    expect(merged.pinch.fingers).toEqual(['middle']);
+    fingers.push('index');
+    expect(merged.pinch.fingers).toEqual(['middle']);
+    const bad = mergeConfig(defaultConfig(), { pinch: { fingers: [1, 2] } } as unknown as GestureCoreConfigPatch);
+    expect(bad.pinch.fingers).toEqual(['index', 'middle', 'ring', 'pinky']);
   });
 
   it('replaces poses wholesale', () => {

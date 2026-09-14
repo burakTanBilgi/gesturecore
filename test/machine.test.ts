@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GestureCore } from '../src/index.js';
 import type { GestureCoreConfigPatch, GestureEvent, Hand, HandLabel, Landmark } from '../src/types.js';
-import { hand, loadFixture, translate, withPinchRaw } from './helpers.js';
+import { hand, loadFixture, translate, withPinchRaw, withThumbDistances } from './helpers.js';
 
 // ── fixtures and script helpers ─────────────────────────────────────────────
 
@@ -38,8 +38,9 @@ function hold(pts: Landmark[] | null, from: number, to: number, step = 33, label
   return out;
 }
 
+/** Expected event. Pinch events default to finger 'index'. */
 const ev = (type: GestureEvent['type'], t: number, extra: object = {}, h: HandLabel = 'Right') =>
-  ({ type, hand: h, t, ...extra }) as GestureEvent;
+  ({ type, hand: h, t, ...(type.startsWith('pinch') ? { finger: 'index' } : {}), ...extra }) as GestureEvent;
 
 const withoutMoves = (events: GestureEvent[]) => events.filter((e) => e.type !== 'pinch:move');
 
@@ -175,6 +176,76 @@ describe('pinch hysteresis (closed 0.15, h 0.05 → close below 0.20, release ab
     expect(core.update([R(raw(0.25))], 0)).toEqual([ev('engage', 0)]);
     core.setConfig({ pinch: { closed: 0.22, hysteresis: 0.05 } }); // close below 0.27
     expect(core.update([R(raw(0.25))], 1)).toEqual([ev('pinch:start', 1)]);
+  });
+});
+
+// ── which finger ────────────────────────────────────────────────────────────
+
+describe('pinch finger', () => {
+  const FAR = { index: 0.9, middle: 0.9, ring: 0.9, pinky: 0.9 };
+  const thumbTo = (r: Partial<Record<'index' | 'middle' | 'ring' | 'pinky', number>>) => withThumbDistances(OPEN, { ...FAR, ...r });
+
+  it.each(['index', 'middle', 'ring', 'pinky'] as const)('reports %s on start, move and end', (finger) => {
+    const core = new GestureCore({ ...PINCH_ONLY, dwellMs: 0 });
+    const events = run(core, [
+      [0, [R(thumbTo({ [finger]: 0.1 }))]],
+      [10, [R(thumbTo({ [finger]: 0.15 }))]],
+      [20, [R(thumbTo({ [finger]: 0.5 }))]],
+    ]);
+    expect(events).toEqual([
+      ev('engage', 0),
+      ev('pinch:start', 0, { finger }),
+      ev('pinch:move', 10, { finger, value: expect.closeTo(0, 6) }),
+      ev('pinch:end', 20, { finger }),
+    ]);
+    expect(core.getHandState('Right')?.pinchFinger).toBeNull();
+  });
+
+  it('only enabled fingers can pinch', () => {
+    const core = new GestureCore({ ...PINCH_ONLY, dwellMs: 0, pinch: { fingers: ['index'] } });
+    expect(run(core, hold(thumbTo({ middle: 0.05 }), 0, 500))).toEqual([ev('engage', 0)]);
+  });
+
+  it('during dwell the candidate follows the closest finger without restarting the timer', () => {
+    const core = new GestureCore(PINCH_ONLY);
+    const events = run(core, [
+      [0, [R(thumbTo({ index: 0.12, middle: 0.4 }))]],
+      [150, [R(thumbTo({ index: 0.25, middle: 0.08 }))]], // settles on middle; index still within band
+      [299, [R(thumbTo({ index: 0.35, middle: 0.08 }))]],
+      [300, [R(thumbTo({ index: 0.35, middle: 0.08 }))]],
+    ]);
+    expect(events).toEqual([ev('engage', 0), ev('pinch:start', 300, { finger: 'middle' })]);
+  });
+
+  it('once started the finger is locked; sliding to another finger ends and re-dwells', () => {
+    const core = new GestureCore(PINCH_ONLY);
+    const events = run(core, [
+      [0, [R(thumbTo({ index: 0.1 }))]],
+      [300, [R(thumbTo({ index: 0.1 }))]], // start index
+      [400, [R(thumbTo({ index: 0.25, middle: 0.05 }))]], // middle is closer but index is still inside the band
+      [500, [R(thumbTo({ index: 0.4, middle: 0.05 }))]], // index releases, middle closes: timer restarts
+      [799, [R(thumbTo({ index: 0.4, middle: 0.05 }))]],
+      [800, [R(thumbTo({ index: 0.4, middle: 0.05 }))]],
+    ]);
+    expect(events).toEqual([
+      ev('engage', 0),
+      ev('pinch:start', 300),
+      ev('pinch:move', 400, { value: expect.closeTo(0.1 / 0.6, 6) }),
+      ev('pinch:end', 500),
+      ev('pinch:start', 800, { finger: 'middle' }),
+    ]);
+  });
+
+  it('disabling the active finger live ends the pinch', () => {
+    const core = new GestureCore({ ...PINCH_ONLY, dwellMs: 0 });
+    core.update([R(thumbTo({ ring: 0.1 }))], 0);
+    core.setConfig({ pinch: { fingers: ['index', 'middle'] } });
+    expect(core.update([R(thumbTo({ ring: 0.1 }))], 10)).toEqual([ev('pinch:end', 10, { finger: 'ring' })]);
+  });
+
+  it('a fist does not pinch with any finger', () => {
+    const core = new GestureCore(PINCH_ONLY);
+    expect(run(core, hold(FIST, 0, 3000))).toEqual([ev('engage', 0)]);
   });
 });
 

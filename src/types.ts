@@ -6,7 +6,9 @@
  * HANDEDNESS is anatomical: 'Right' means the user's actual right hand.
  *   MediaPipe's label depends on whether the frame it saw was mirrored, so the
  *   *source adapter* is responsible for producing the anatomical label before
- *   calling `update()`. The core never flips handedness.
+ *   calling `update()`. The core never flips handedness. Observed with
+ *   @mediapipe/tasks-vision 1.0.1 on a laptop webcam: feeding the unmirrored
+ *   camera frame yields the anatomical label as-is (no flip needed).
  *
  * COORDINATES are MediaPipe-normalised image coordinates: x and y in [0, 1]
  *   across the frame the adapter chose to hand us (y grows downward), z relative
@@ -57,9 +59,14 @@ export type Features = {
   span: number;
   /** Unnormalised thumb-tip ↔ index-tip distance / span. What pinch thresholds compare against. */
   pinchRaw: number;
+  /** Thumb-tip ↔ fingertip distance / span for every finger the thumb can pinch. `pinchRaws.index === pinchRaw`. */
+  pinchRaws: Record<PinchFinger, number>;
 };
 
 export type FingerName = 'thumb' | 'index' | 'middle' | 'ring' | 'pinky';
+
+/** A finger the thumb can pinch against. */
+export type PinchFinger = Exclude<FingerName, 'thumb'>;
 
 export type PoseDescription = {
   name: string;
@@ -73,8 +80,9 @@ export type PoseMatch = { name: string; score: number };
 
 export type GestureEvent =
   | { type: 'engage' | 'disengage'; hand: HandLabel; t: number }
-  | { type: 'pinch:start' | 'pinch:end'; hand: HandLabel; t: number }
-  | { type: 'pinch:move'; hand: HandLabel; value: number; t: number }
+  | { type: 'pinch:start' | 'pinch:end'; hand: HandLabel; finger: PinchFinger; t: number }
+  /** `value` is the normalised pinch (0 closed … 1 open) of the finger that started the pinch. */
+  | { type: 'pinch:move'; hand: HandLabel; finger: PinchFinger; value: number; t: number }
   | { type: 'pose'; hand: HandLabel; name: string; t: number }
   | { type: 'lost'; hand: HandLabel; t: number };
 
@@ -83,8 +91,12 @@ export type GestureEventType = GestureEvent['type'];
 export interface GestureCoreConfig {
   /** One Euro filter, applied per landmark coordinate before feature extraction. */
   smoothing: { minCutoff: number; beta: number; dCutoff: number };
-  /** Thresholds on `pinchRaw`. Closes below closed+h, releases above closed+3h. */
-  pinch: { closed: number; open: number; hysteresis: number };
+  /**
+   * Thresholds on thumb ↔ fingertip distance / span. Closes below closed+h, releases above closed+3h.
+   * `fingers` lists which fingers may pinch. While closing, the closest enabled finger is the candidate;
+   * once pinch:start fires, that finger is locked until pinch:end.
+   */
+  pinch: { closed: number; open: number; hysteresis: number; fingers: PinchFinger[] };
   /**
    * Hold `pose` for `dwellMs` to engage a hand. Pinch events only fire while engaged.
    * An empty pose name engages a hand as soon as it appears.
@@ -118,8 +130,10 @@ export type HandState = {
   /** 0..1 progress toward engaging (1 once engaged). */
   engageProgress: number;
   pinched: boolean;
-  /** Hysteresis state: thumb and index are closed, whether or not dwell has completed. */
+  /** Hysteresis state: the thumb is closed on a finger, whether or not dwell has completed. */
   pinchClosed: boolean;
+  /** The finger the thumb is closed on (candidate during dwell, locked once pinched), or null. */
+  pinchFinger: PinchFinger | null;
   /** 0..1 progress toward pinch:start. */
   pinchProgress: number;
   /** Best pose currently held (above its minScore), or null. */

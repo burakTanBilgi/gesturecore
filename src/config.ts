@@ -6,10 +6,10 @@ function copy<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-export const DEFAULT_CONFIG: Readonly<GestureCoreConfig> = Object.freeze({
+export const DEFAULT_CONFIG: Readonly<GestureCoreConfig> = Object.freeze<GestureCoreConfig>({
   // One Euro, t in seconds, values in normalised landmark units.
   smoothing: { minCutoff: 1.0, beta: 0.007, dCutoff: 1.0 },
-  pinch: { closed: 0.15, open: 0.75, hysteresis: 0.05 },
+  pinch: { closed: 0.15, open: 0.75, hysteresis: 0.05, fingers: ['index', 'middle', 'ring', 'pinky'] },
   engage: { pose: 'openPalm', dwellMs: 500 },
   dwellMs: 300,
   lostAfterMs: 150,
@@ -46,7 +46,12 @@ export function mergeConfig(base: GestureCoreConfig, patch: GestureCoreConfigPat
       if (!isPlainObject(value)) continue;
       const section = out[key] as Record<string, unknown>;
       for (const [k, v] of Object.entries(value)) {
-        if (k in ref && typeof v === typeof ref[k] && (typeof v !== 'number' || Number.isFinite(v))) {
+        if (!(k in ref)) continue;
+        const r = ref[k];
+        if (Array.isArray(r)) {
+          // arrays inside sections are string lists (pinch.fingers)
+          if (Array.isArray(v) && v.every((x) => typeof x === 'string')) section[k] = [...v];
+        } else if (typeof v === typeof r && !Array.isArray(v) && (typeof v !== 'number' || Number.isFinite(v))) {
           section[k] = v;
         }
       }

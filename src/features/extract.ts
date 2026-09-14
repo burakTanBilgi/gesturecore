@@ -1,4 +1,4 @@
-import type { Features, GestureCoreConfig, Landmark } from '../types.js';
+import type { Features, GestureCoreConfig, Landmark, PinchFinger } from '../types.js';
 import { clamp, dist, isotropic, jointBend, LANDMARK_COUNT, LM, unlerp, type Vec3 } from './geometry.js';
 
 export type ExtractOptions = Pick<GestureCoreConfig, 'pinch' | 'curl' | 'aspect'>;
@@ -17,6 +17,16 @@ const CURL_CHAINS: readonly (readonly [number, number, number])[] = [
 
 const PALM = [LM.WRIST, LM.INDEX_MCP, LM.MIDDLE_MCP, LM.RING_MCP, LM.PINKY_MCP] as const;
 
+/** Fingers the thumb can pinch, index → pinky, and their tip landmarks. */
+export const PINCH_FINGERS: readonly PinchFinger[] = ['index', 'middle', 'ring', 'pinky'];
+
+export const PINCH_TIPS: Readonly<Record<PinchFinger, number>> = {
+  index: LM.INDEX_TIP,
+  middle: LM.MIDDLE_TIP,
+  ring: LM.RING_TIP,
+  pinky: LM.PINKY_TIP,
+};
+
 /** Landmark[] → Features for a single frame. Pure. */
 export function extractFeatures(landmarks: readonly Landmark[], opts: ExtractOptions): Features {
   if (landmarks.length !== LANDMARK_COUNT) {
@@ -29,7 +39,10 @@ export function extractFeatures(landmarks: readonly Landmark[], opts: ExtractOpt
   const span = dist(at(LM.WRIST), at(LM.MIDDLE_MCP));
   const ref = Math.max(span, MIN_SPAN);
 
-  const pinchRaw = dist(at(LM.THUMB_TIP), at(LM.INDEX_TIP)) / ref;
+  const thumb = at(LM.THUMB_TIP);
+  const tipRatio = (f: PinchFinger) => dist(thumb, at(PINCH_TIPS[f])) / ref;
+  const pinchRaws = { index: tipRatio('index'), middle: tipRatio('middle'), ring: tipRatio('ring'), pinky: tipRatio('pinky') };
+  const pinchRaw = pinchRaws.index;
   const pinch = unlerp(pinchRaw, opts.pinch.closed, opts.pinch.open);
 
   const curls = CURL_CHAINS.map(([a, b, c], finger) => {
@@ -60,5 +73,6 @@ export function extractFeatures(landmarks: readonly Landmark[], opts: ExtractOpt
     centroid: { x: cx / PALM.length, y: cy / PALM.length },
     span,
     pinchRaw,
+    pinchRaws,
   };
 }
