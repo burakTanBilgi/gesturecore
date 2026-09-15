@@ -6,6 +6,7 @@
  */
 import { FilesetResolver, HandLandmarker, type HandLandmarkerResult } from '@mediapipe/tasks-vision';
 import {
+  DEFAULT_MOTIONS,
   DEFAULT_POSES,
   GestureCore,
   defaultConfig,
@@ -16,6 +17,8 @@ import {
   type Hand,
   type HandLabel,
   type Landmark,
+  type MotionAxis,
+  type MotionDescription,
   type PinchFinger,
   type PoseDescription,
   PINCH_FINGERS,
@@ -308,6 +311,7 @@ function processFrame(hands: Hand[], now: number): GestureEvent[] {
   updateVisualSmoothing(hands, now);
   handleEvents(events);
   capture.onFrame(hands);
+  poseRecorder.onFrame();
   draw();
   renderReadout();
   return events;
@@ -349,7 +353,7 @@ function log(e: GestureEvent): void {
   }
   const cls = e.type === 'pinch:move' ? 'move' : e.type.startsWith('pinch') ? 'pinch' : e.type;
   let detail = '';
-  if (e.type === 'pose') detail = ` ${e.name}`;
+  if (e.type === 'pose' || e.type === 'motion') detail = ` ${e.name}`;
   if (e.type === 'pinch:start' || e.type === 'pinch:end') detail = ` ${e.finger}`;
   if (e.type === 'pinch:move') detail = ` ${e.finger} ${fmt(e.value, 3)}`;
   const node = el('div', {}, [
@@ -659,7 +663,9 @@ function buildHandCard(label: HandLabel) {
   rows.append(el('div', { className: 'sep' }));
   const poseRows = el('div');
   rows.append(poseRows);
-  return { card, badges, r, progress, poseRows, poseRefs: [] as RowRefs[], poseKey: '' };
+  const motionRows = el('div');
+  rows.append(el('div', { className: 'sep' }), motionRows);
+  return { card, badges, r, progress, poseRows, poseRefs: [] as RowRefs[], poseKey: '', motionRows, motionRefs: [] as RowRefs[], motionKey: '' };
 }
 
 const cards = new Map(LABELS.map((l) => [l, buildHandCard(l)] as const));
@@ -689,10 +695,20 @@ function renderReadout(): void {
       c.poseRows.replaceChildren();
       c.poseRefs = cfg.poses.map((p) => makeRow(c.poseRows, `≈ ${p.name}`));
     }
+    const mKey = cfg.motions.map((m) => m.name).join('|');
+    if (mKey !== c.motionKey) {
+      c.motionKey = mKey;
+      c.motionRows.replaceChildren();
+      c.motionRefs = cfg.motions.map((m) => makeRow(c.motionRows, `↝ ${m.name}`, 'motion'));
+    }
     if (!f || !st) {
       for (const ref of c.poseRefs) ref.row.classList.remove('best');
       continue;
     }
+    st.motionProgress.forEach((m, i) => {
+      const ref = c.motionRefs[i];
+      if (ref) setBar(ref, m.progress, fmt(m.progress, 2));
+    });
 
     setBar(c.r.pinch, f.pinch, fmt(f.pinch));
     const h = cfg.pinch.hysteresis;
@@ -878,7 +894,16 @@ function buildSliders(): void {
 
 function refreshAll(): void {
   for (const f of sliderRefresh) f();
-  $<HTMLTextAreaElement>('posesText').value = JSON.stringify(core.getConfig().poses, null, 2);
+  const cfg = core.getConfig();
+  $<HTMLTextAreaElement>('posesText').value = JSON.stringify(cfg.poses, null, 2);
+  $<HTMLTextAreaElement>('motionsText').value = JSON.stringify(cfg.motions, null, 2);
+  const mvPose = $<HTMLSelectElement>('mvPose');
+  const keep = mvPose.value;
+  mvPose.replaceChildren(
+    el('option', { value: '', textContent: '(any hand shape)' }),
+    ...cfg.poses.map((p) => el('option', { value: p.name, textContent: p.name })),
+  );
+  mvPose.value = cfg.poses.some((p) => p.name === keep) ? keep : '';
 }
 
 function flash(target: string, text: string, ok = true): void {
@@ -958,6 +983,169 @@ $('btnPosesReset').addEventListener('click', () => {
   refreshAll();
   flash('posesMsg', 'Default poses restored.');
 });
+
+// ── movements editor and builder ─────────────────────────────────────────────
+
+const AXES: MotionAxis[] = ['x', 'y', 'depth', 'tilt'];
+
+function validateMotions(value: unknown): MotionDescription[] {
+  if (!Array.isArray(value)) throw new Error('movements must be a JSON array');
+  const names = new Set<string>();
+  value.forEach((m, i) => {
+    if (typeof m !== 'object' || m === null) throw new Error(`movement ${i}: not an object`);
+    const d = m as Record<string, unknown>;
+    const who = typeof d.name === 'string' && d.name ? d.name : `movement ${i}`;
+    if (typeof d.name !== 'string' || d.name === '') throw new Error(`${who}: name must be a non-empty string`);
+    if (names.has(d.name)) throw new Error(`${who}: duplicate name`);
+    names.add(d.name);
+    if (!AXES.includes(d.axis as MotionAxis)) throw new Error(`${who}: axis must be one of ${AXES.join(', ')}`);
+    if (!(typeof d.distance === 'number' && d.distance > 0)) throw new Error(`${who}: distance must be a number > 0`);
+    if (!(typeof d.withinMs === 'number' && d.withinMs > 0)) throw new Error(`${who}: withinMs must be a number > 0`);
+    if (d.direction !== undefined && d.direction !== 1 && d.direction !== -1) throw new Error(`${who}: direction must be 1 or -1`);
+    if (d.reversals !== undefined && !(Number.isInteger(d.reversals) && (d.reversals as number) >= 0)) {
+      throw new Error(`${who}: reversals must be a whole number ≥ 0`);
+    }
+    if (d.pose !== undefined && typeof d.pose !== 'string') throw new Error(`${who}: pose must be a string`);
+    if (d.cooldownMs !== undefined && !(typeof d.cooldownMs === 'number' && d.cooldownMs >= 0)) {
+      throw new Error(`${who}: cooldownMs must be a number ≥ 0`);
+    }
+  });
+  return value as MotionDescription[];
+}
+
+$('btnMotionsApply').addEventListener('click', () => {
+  try {
+    const motions = validateMotions(JSON.parse($<HTMLTextAreaElement>('motionsText').value));
+    applyConfig({ motions });
+    refreshAll();
+    flash('motionsMsg', `Applied ${motions.length} movements.`);
+  } catch (err) {
+    flash('motionsMsg', (err as Error).message, false);
+  }
+});
+$('btnMotionsReset').addEventListener('click', () => {
+  applyConfig({ motions: JSON.parse(JSON.stringify(DEFAULT_MOTIONS)) as MotionDescription[] });
+  refreshAll();
+  flash('motionsMsg', 'Default movements restored.');
+});
+
+(() => {
+  const axisSel = $<HTMLSelectElement>('mvAxis');
+  const dirSel = $<HTMLSelectElement>('mvDir');
+  const dist = $<HTMLInputElement>('mvDist');
+  const rev = $<HTMLInputElement>('mvRev');
+  const AXIS_INFO: Record<MotionAxis, { plus: string; minus: string; unit: string; distance: number }> = {
+    x: { plus: 'right →', minus: '← left', unit: 'hand sizes', distance: 1.5 },
+    y: { plus: 'down ↓', minus: '↑ up', unit: 'hand sizes', distance: 1.5 },
+    depth: { plus: 'toward camera', minus: 'away from camera', unit: '× size change (0.25 = 25 %)', distance: 0.25 },
+    tilt: { plus: 'clockwise on screen', minus: 'counter-clockwise', unit: 'radians (0.5 ≈ 29°)', distance: 0.6 },
+  };
+  const update = (axisChanged: boolean) => {
+    const info = AXIS_INFO[axisSel.value as MotionAxis];
+    const keep = dirSel.value;
+    dirSel.replaceChildren(el('option', { value: '1', textContent: info.plus }), el('option', { value: '-1', textContent: info.minus }));
+    dirSel.value = keep === '-1' ? '-1' : '1';
+    $('mvUnit').textContent = info.unit;
+    if (axisChanged) dist.value = String(info.distance);
+    const waves = Number(rev.value) > 0;
+    dirSel.disabled = waves;
+    $('mvHint').textContent = waves
+      ? `A back-and-forth of ${Number(rev.value) + 1} strokes, each at least the distance, all within the time. Direction does not matter.`
+      : 'One stroke of at least the distance, within the time.' +
+        (axisSel.value === 'x' && !settings.mirror ? ' Mirror view is off, so right/left are the camera\'s, not yours.' : '');
+  };
+  axisSel.addEventListener('change', () => update(true));
+  rev.addEventListener('input', () => update(false));
+  update(true);
+
+  $('mvAdd').addEventListener('click', () => {
+    const name = $<HTMLInputElement>('mvName').value.trim();
+    if (!name) return flash('mvMsg', 'Give the movement a name.', false);
+    const reversals = Math.max(0, Math.floor(Number(rev.value) || 0));
+    const pose = $<HTMLSelectElement>('mvPose').value;
+    const motion: MotionDescription = {
+      name,
+      axis: axisSel.value as MotionAxis,
+      distance: Number(dist.value),
+      withinMs: Number($<HTMLInputElement>('mvWithin').value),
+      cooldownMs: Number($<HTMLInputElement>('mvCool').value),
+      ...(reversals > 0 ? { reversals } : { direction: dirSel.value === '-1' ? -1 : 1 }),
+      ...(pose ? { pose } : {}),
+    };
+    try {
+      const motions = core.getConfig().motions.filter((m) => m.name !== name);
+      motions.push(motion);
+      applyConfig({ motions: validateMotions(motions) });
+      refreshAll();
+      flash('mvMsg', `Added "${name}". Try it: engage, then move.`);
+    } catch (err) {
+      flash('mvMsg', (err as Error).message, false);
+    }
+  });
+})();
+
+// ── pose recorder ────────────────────────────────────────────────────────────
+
+const poseRecorder = (() => {
+  const NEED = 15;
+  let collecting: { hand: HandLabel; name: string; curls: number[][] } | null = null;
+  let countdown: number | undefined;
+  bindPair('grTol', 'grTolN');
+  bindPair('grDelay', 'grDelayN');
+  const status = (text: string): void => {
+    $('grStatus').textContent = text;
+  };
+
+  $('grRecord').addEventListener('click', () => {
+    const name = $<HTMLInputElement>('grName').value.trim();
+    if (!name) return status('Give the pose a name first.');
+    clearInterval(countdown);
+    const hand = $<HTMLSelectElement>('grHand').value as HandLabel;
+    let left = Number($<HTMLInputElement>('grDelay').value);
+    const begin = () => {
+      collecting = { hand, name, curls: [] };
+      status(`Hold it… reading your ${hand} hand`);
+    };
+    if (left <= 0) return begin();
+    status(`Make the "${name}" shape with your ${hand} hand… ${left}`);
+    countdown = window.setInterval(() => {
+      left--;
+      if (left > 0) return status(`Make the "${name}" shape with your ${hand} hand… ${left}`);
+      clearInterval(countdown);
+      begin();
+    }, 1000);
+  });
+
+  function onFrame(): void {
+    if (!collecting) return;
+    const f = core.getFeatures(collecting.hand);
+    if (!f) return status(`Waiting for your ${collecting.hand} hand…`);
+    collecting.curls.push(f.curls);
+    if (collecting.curls.length < NEED) return status(`Reading ${collecting.curls.length}/${NEED}…`);
+
+    const { name, curls } = collecting;
+    collecting = null;
+    const tol = Number($<HTMLInputElement>('grTol').value);
+    const withThumb = $<HTMLInputElement>('grThumb').checked;
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const fingers: PoseDescription['fingers'] = {};
+    FINGER_NAMES.forEach((finger, i) => {
+      if (i === 0 && !withThumb) return;
+      const mean = curls.reduce((s, c) => s + c[i]!, 0) / curls.length;
+      fingers[finger as keyof PoseDescription['fingers']] = {
+        curl: [r2(Math.max(0, mean - tol)), r2(Math.min(1, mean + tol))],
+      };
+    });
+    const pose: PoseDescription = { name, fingers };
+    const poses = core.getConfig().poses.filter((p) => p.name !== name);
+    poses.push(pose);
+    applyConfig({ poses });
+    refreshAll();
+    status(`Saved pose "${name}": ${Object.entries(fingers).map(([k, v]) => `${k} ${v.curl![0]}–${v.curl![1]}`).join(', ')}`);
+  }
+
+  return { onFrame };
+})();
 
 // ── fixture capture ──────────────────────────────────────────────────────────
 

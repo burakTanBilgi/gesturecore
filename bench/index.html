@@ -99,6 +99,8 @@
       #log .pose { color: var(--pose); }
       #log .pinch { color: var(--pinch); }
       #log .lost { color: var(--bad); }
+      #log .motion { color: var(--accent); font-weight: 600; }
+      .row.motion .fill { background: var(--accent); }
       #log .move { color: var(--muted); }
 
       /* readout */
@@ -213,7 +215,7 @@
       <section class="col-panel">
         <nav class="tabs" id="tabs">
           <button data-tab="tuning">Tuning</button>
-          <button data-tab="poses">Poses</button>
+          <button data-tab="poses">Gestures</button>
           <button data-tab="scroll">Scroll test</button>
           <button data-tab="fixtures">Fixtures</button>
           <button data-tab="source">Source</button>
@@ -235,13 +237,61 @@
         </div>
 
         <div class="tabpane" data-pane="poses" hidden>
-          <p class="hint">Poses are plain data. Edit the JSON and apply; changes take effect on the next frame. Curl ranges are inclusive, 0 = straight, 1 = fully bent.</p>
-          <textarea id="posesText" rows="22"></textarea>
-          <div class="btns">
-            <button id="btnPosesApply" class="primary">Apply poses</button>
-            <button id="btnPosesReset">Reset to defaults</button>
-          </div>
-          <div id="posesMsg"></div>
+          <p class="hint">Gestures are plain data: <b>poses</b> are hand shapes, <b>movements</b> are how the hand travels. Both take effect on the next frame and are saved with the config.</p>
+
+          <fieldset>
+            <legend>Record a pose from your hand</legend>
+            <p class="hint">Hold the hand shape. The recorder averages each finger's curl and makes a pose that matches your curls ± the tolerance.</p>
+            <div class="ctl"><label>name</label><input type="text" id="grName" placeholder="e.g. peace" /><span></span></div>
+            <div class="ctl"><label>hand</label><select id="grHand"><option>Right</option><option>Left</option></select><span></span></div>
+            <div class="ctl"><label>tolerance ±</label><input type="range" id="grTol" min="0.05" max="0.4" step="0.01" value="0.15" /><input type="number" id="grTolN" min="0.05" max="0.4" step="0.01" value="0.15" /></div>
+            <div class="ctl"><label>countdown (s)</label><input type="range" id="grDelay" min="0" max="10" step="1" value="3" /><input type="number" id="grDelayN" min="0" max="10" step="1" value="3" /></div>
+            <label class="check"><input type="checkbox" id="grThumb" /> include thumb (its curl is noisier)</label>
+            <div class="btns"><button id="grRecord" class="primary">Record pose</button></div>
+            <div id="grStatus" class="hint"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Build a movement</legend>
+            <div class="ctl"><label>name</label><input type="text" id="mvName" placeholder="e.g. swipeUp" /><span></span></div>
+            <div class="ctl"><label>measure</label>
+              <select id="mvAxis">
+                <option value="x">sideways (x)</option>
+                <option value="y">up / down (y)</option>
+                <option value="depth">toward / away from camera</option>
+                <option value="tilt">twist (palm rotation)</option>
+              </select><span></span></div>
+            <div class="ctl"><label>direction</label><select id="mvDir"></select><span></span></div>
+            <div class="ctl"><label>distance</label><input type="number" id="mvDist" min="0.01" step="0.05" value="1.5" /><span class="hint" id="mvUnit"></span></div>
+            <div class="ctl"><label>within (ms)</label><input type="number" id="mvWithin" min="50" step="50" value="400" /><span></span></div>
+            <div class="ctl"><label>back-and-forth</label><input type="number" id="mvRev" min="0" max="10" step="1" value="0" /><span class="hint">reversals</span></div>
+            <div class="ctl"><label>while holding</label><select id="mvPose"></select><span></span></div>
+            <div class="ctl"><label>cooldown (ms)</label><input type="number" id="mvCool" min="0" step="50" value="500" /><span></span></div>
+            <p class="hint" id="mvHint"></p>
+            <div class="btns"><button id="mvAdd" class="primary">Add movement</button></div>
+            <div id="mvMsg"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Poses (JSON)</legend>
+            <p class="hint">Curl ranges are inclusive, 0 = straight, 1 = fully bent. Unlisted fingers are ignored.</p>
+            <textarea id="posesText" rows="12"></textarea>
+            <div class="btns">
+              <button id="btnPosesApply" class="primary">Apply poses</button>
+              <button id="btnPosesReset">Reset to defaults</button>
+            </div>
+            <div id="posesMsg"></div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Movements (JSON)</legend>
+            <textarea id="motionsText" rows="12"></textarea>
+            <div class="btns">
+              <button id="btnMotionsApply" class="primary">Apply movements</button>
+              <button id="btnMotionsReset">Reset to defaults</button>
+            </div>
+            <div id="motionsMsg"></div>
+          </fieldset>
         </div>
 
         <div class="tabpane" data-pane="scroll" hidden>
