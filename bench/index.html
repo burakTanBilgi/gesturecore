@@ -55,7 +55,7 @@
       b, strong { font-weight: 500; }
 
       /* animated backdrop: a small blurred canvas, plus a static grid over it */
-      #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(26px) saturate(1.15); }
+      #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(11px) saturate(1.2); }
       #bg[hidden] { display: none; }
       body::after {
         content: ''; position: fixed; inset: 0; z-index: 1; pointer-events: none;
@@ -180,8 +180,11 @@
       #panels { display: none; }
       .panel { height: 100%; overflow: auto; background: var(--bg-2); }
       .pad { padding: 8px 10px 18px; }
-      /* glass: every panel but the camera lets the backdrop through */
-      body.glass .panel { background: transparent; }
+      /* Glass lets the field through, but keeps a dark scrim so text stays readable
+         whatever the waves are doing underneath. */
+      body.glass .panel { background: rgba(4, 9, 13, 0.55); }
+      body.glass .panel.pad, body.glass .panel.docs { background: rgba(4, 9, 13, 0.62); }
+      body.glass .panel.field { background: transparent; }
 
       /* ── stage ────────────────────────────────────────────────────────── */
       .panel.stage { display: flex; flex-direction: column; overflow: hidden; background: rgba(2, 6, 9, 0.85); }
@@ -201,6 +204,11 @@
       .sw.data { background: var(--data); } .sw.pending { background: var(--pending); }
       .sw.active { background: var(--active); } .sw.fault { background: var(--fault); }
       .sw.limit { background: var(--limit); } .sw.raw { background: var(--raw); }
+
+      /* ── field panel: the same waves, watched on purpose ──────────────── */
+      .panel.field { display: flex; flex-direction: column; overflow: hidden; }
+      .fieldwrap { position: relative; flex: 1; min-height: 0; background: #04080c; border-radius: var(--r); overflow: hidden; }
+      .fieldwrap canvas { display: block; width: 100%; height: 100%; filter: blur(4px) saturate(1.2); }
 
       /* ── events log ───────────────────────────────────────────────────── */
       .panel.events { display: flex; flex-direction: column; overflow: hidden; }
@@ -369,9 +377,9 @@
         --dv-floating-titlebar-border-bottom: 1px solid rgba(104, 158, 172, 0.12);
         --dv-group-view-background-color: var(--bg);
         --dv-tabs-and-actions-container-background-color: rgba(6, 14, 20, 0.4);
-        --dv-activegroup-visiblepanel-tab-background-color: rgba(18, 40, 50, 0.45);
+        --dv-activegroup-visiblepanel-tab-background-color: transparent;
         --dv-activegroup-hiddenpanel-tab-background-color: transparent;
-        --dv-inactivegroup-visiblepanel-tab-background-color: rgba(18, 40, 50, 0.28);
+        --dv-inactivegroup-visiblepanel-tab-background-color: transparent;
         --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
         --dv-tab-divider-color: transparent;
         --dv-activegroup-visiblepanel-tab-color: var(--limit);
@@ -383,36 +391,42 @@
         --dv-context-menu-background-color: var(--bg-2);
         --dv-context-menu-color: var(--text);
       }
+      /* Tabs are text, not boxes: no fill, no outline, just a hairline under the
+         active one and a slow violet glow under the mouse. */
       .dockview-theme-fui .dv-tab {
         text-transform: uppercase;
         letter-spacing: 0.12em;
         font-weight: 300;
-        margin: 3px 2px;
-        border-radius: var(--dv-tab-border-radius);
-        height: calc(var(--dv-tabs-and-actions-container-height) - 6px);
-        border: 1px solid rgba(104, 158, 172, 0.1);
-        /* not an action: a slow violet answer to the mouse */
-        transition: box-shadow 0.5s ease, border-color 0.5s ease, background-color 0.35s ease, color 0.35s ease;
+        margin: 0;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        transition: color 0.35s ease, text-shadow 0.5s ease, box-shadow 0.5s ease;
       }
       .dockview-theme-fui .dv-tab:hover {
-        border-color: rgba(140, 120, 255, 0.35);
-        box-shadow: 0 0 16px var(--glow-surface);
+        color: var(--limit);
+        text-shadow: 0 0 12px var(--glow-surface);
+        box-shadow: inset 0 -1px 0 rgba(140, 120, 255, 0.35);
       }
       .dockview-theme-fui .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab {
-        border-color: rgba(128, 196, 212, 0.35);
+        box-shadow: inset 0 -1px 0 rgba(128, 196, 212, 0.55);
       }
       .dockview-theme-fui .dv-tabs-and-actions-container { border-bottom: 1px solid rgba(104, 158, 172, 0.1); height: 28px; }
       .dockview-theme-fui .dv-tabs-overflow-dropdown-default, .dockview-theme-fui .dv-tabs-overflow-container {
         border-radius: var(--dv-dropdown-border-radius);
       }
-      /* close buttons: faint until wanted, and clickable, so they glow cyan */
+      /* close buttons: faint until wanted, then red — this one throws work away */
       .dockview-theme-fui .dv-default-tab-action {
-        opacity: 0.3; border-radius: 50%; padding: 2px; margin-left: 2px;
-        transition: opacity 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+        opacity: 0.3; border-radius: 50%; padding: 2px; margin-left: 4px; color: var(--muted);
+        transition: opacity 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
       }
       .dockview-theme-fui .dv-tab:hover .dv-default-tab-action { opacity: 0.6; }
       .dockview-theme-fui .dv-default-tab-action:hover {
-        opacity: 1; background: rgba(79, 209, 224, 0.12); box-shadow: 0 0 10px var(--glow-action);
+        opacity: 1; color: #ff5064; background: rgba(255, 80, 100, 0.12); box-shadow: 0 0 12px rgba(255, 80, 100, 0.6);
+      }
+      .dockview-theme-fui .dv-default-tab-action:active {
+        color: #ff1f3a; background: rgba(255, 31, 58, 0.22); box-shadow: 0 0 18px rgba(255, 31, 58, 0.85);
       }
       .dockview-theme-fui .dv-groupview { border-radius: var(--dv-border-radius); overflow: hidden; }
       body.glass .dockview-theme-fui { --dv-group-view-background-color: transparent; }
@@ -633,6 +647,14 @@
         </fieldset>
       </div>
 
+      <div class="panel field" data-panel="field">
+        <div class="fieldwrap"><canvas id="fieldCanvas" width="2" height="2"></canvas></div>
+        <div class="key">
+          <span>tilt → field tilt</span><span>open / fist → wave height</span><span>fingers up → wave tightness</span>
+          <span>palm → position and speed</span><span>left violet · right cyan</span><span>gestures ripple</span>
+        </div>
+      </div>
+
       <!-- ── docs ─────────────────────────────────────────────────────── -->
       <div class="panel docs" data-panel="docs">
         <div class="docs-body">
@@ -705,7 +727,17 @@
             <li><b>Cyan glow</b> = you can click this. Buttons, links, fields, checkboxes and the tab close buttons light up quickly under the mouse.</li>
             <li><b>Violet glow</b> = a surface, not an action. Tabs, panels, tables and code blocks answer with a slower, softer glow that fades in and out.</li>
           </ul>
-          <p>The <b>backdrop</b> is a slow colour field that drifts on its own and leans slightly toward what your hands are doing: it warms while a hand is engaged and ripples when a pinch, pose or movement fires. It is deliberately faint — it should read as atmosphere, never as a readout. It repaints about twelve times a second on a tiny canvas and stops entirely when the tab is in the background. Both it and the transparent panels can be switched off in <b>Source → Appearance</b>.</p>
+          <p>The <b>field</b> is a set of slow waves that drift on their own and lean toward what your hands are doing:</p>
+          <div class="tablewrap"><table>
+            <tr><td><b>palm tilt</b></td><td>tilts the whole field</td></tr>
+            <tr><td><b>open hand / fist</b></td><td>wave height — a fist calms it flat</td></tr>
+            <tr><td><b>fingers extended</b></td><td>how tight the waves are</td></tr>
+            <tr><td><b>palm position</b></td><td>where the waves sit, and how fast they travel</td></tr>
+            <tr><td><b>which hand</b></td><td>Left pulls the colour violet, Right pulls it cyan</td></tr>
+            <tr><td><b>engaged / events</b></td><td>brightness, and a ripple on each pinch, pose or movement</td></tr>
+          </table></div>
+          <p>Every influence is smoothed heavily, so it reads as atmosphere, never as a readout — for numbers, use the hand panels. It repaints about sixteen times a second on a small canvas, stops when the tab is in the background, and stays still for anyone whose system asks for reduced motion.</p>
+          <p>You choose where it lives, in <b>Source → Appearance</b>: as the page background, as a panel of its own (<b>Field</b>, where it is drawn sharper and can be watched properly), as both, or as neither. Panels keep a dark scrim over it either way, so text stays readable whatever the waves do.</p>
 
           <h2 id="doc-hand">4. Hand measurements</h2>
           <div class="figure">

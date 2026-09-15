@@ -468,74 +468,173 @@ const session = (() => {
 // ── backdrop ─────────────────────────────────────────────────────────────────
 
 /**
- * Slow colour field behind everything: four drifting blobs on a tiny canvas that CSS
- * blurs to full size. It repaints ~12×/s (and not at all while the tab is hidden or
- * the setting is off), so the cost stays in the noise next to hand tracking.
- * Gestures only lean on it: engaged hands warm and widen it, pinches and movements
- * send a small ripple through it.
+ * Flowing wave field behind everything, drawn on a small canvas that CSS blurs to
+ * full size. It repaints ~16×/s (never while the tab is hidden or the setting is
+ * off), so the cost stays in the noise next to hand tracking.
+ *
+ * The hands only lean on it, and every influence is heavily smoothed so it reads as
+ * atmosphere rather than a readout:
+ *   palm tilt    → the whole field tilts
+ *   open / fist  → wave height
+ *   fingers up   → how tight the waves are
+ *   palm x, y    → where the waves sit and how fast they travel
+ *   which hand   → colour, violet for Left, cyan for Right
+ *   engaged      → brightness; pinch, pose and movement events send a ripple
  */
 const backdrop = (() => {
   const cv = $<HTMLCanvasElement>('bg');
   const c = cv.getContext('2d', { alpha: false })!;
-  const BLOBS = [
-    { hue: [16, 74, 92], sx: 0.031, sy: 0.019, px: 0.0, py: 1.1, r: 0.62, a: 0.85 },
-    { hue: [12, 36, 88], sx: 0.023, sy: 0.027, px: 2.2, py: 0.4, r: 0.55, a: 0.75 },
-    { hue: [38, 22, 86], sx: 0.017, sy: 0.033, px: 4.1, py: 3.0, r: 0.48, a: 0.6 },
-    { hue: [10, 84, 74], sx: 0.029, sy: 0.015, px: 5.4, py: 2.2, r: 0.42, a: 0.5 },
-  ];
+  const panelCv = $<HTMLCanvasElement>('fieldCanvas');
+  const panelC = panelCv.getContext('2d', { alpha: false })!;
+  const BANDS = 6;
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  // live values, each eased toward the hands' current reading
+  const s = { tilt: 0, amp: 0.35, freq: 1, x: 0.5, y: 0.5, side: 0, energy: 0, ripple: 0 };
   let raf = 0;
   let last = 0;
-  let ripple = 0;
-  let warmth = 0;
 
   const resize = () => {
     const ratio = window.innerHeight / Math.max(1, window.innerWidth);
-    cv.width = 180;
-    cv.height = Math.max(60, Math.round(180 * ratio));
+    cv.width = 420;
+    cv.height = Math.max(140, Math.round(420 * ratio));
   };
 
-  function paint(now: number): void {
-    const w = cv.width;
-    const h = cv.height;
-    const t = now / 1000;
-    // engaged hands warm the field; the ripple decays after each gesture
-    const engaged = LABELS.filter((l) => core.getHandState(l)?.engaged).length;
-    warmth += (engaged / 2 - warmth) * 0.08;
-    ripple *= 0.9;
-
-    c.fillStyle = '#04080c';
-    c.fillRect(0, 0, w, h);
-    c.globalCompositeOperation = 'lighter';
-    for (const b of BLOBS) {
-      const x = (0.5 + Math.sin(t * b.sx * 6.3 + b.px) * 0.4) * w;
-      const y = (0.5 + Math.cos(t * b.sy * 6.3 + b.py) * 0.42) * h;
-      const r = (b.r + ripple * 0.06 + warmth * 0.04) * Math.max(w, h);
-      const [rr, gg, bb] = b.hue as [number, number, number];
-      const g = c.createRadialGradient(x, y, 0, x, y, r);
-      const green = Math.round(gg + warmth * 26);
-      g.addColorStop(0, `rgba(${rr}, ${green}, ${bb}, ${b.a * (0.55 + ripple * 0.25)})`);
-      g.addColorStop(1, 'rgba(0, 0, 0, 0)');
-      c.fillStyle = g;
-      c.fillRect(0, 0, w, h);
+  /** Where the hands want the field to be. Absent hands let it drift back to rest. */
+  function readHands(): void {
+    const ease = (key: keyof typeof s, to: number, rate = 0.06) => {
+      s[key] += (to - s[key]) * rate;
+    };
+    let n = 0;
+    let tilt = 0;
+    let open = 0;
+    let up = 0;
+    let x = 0;
+    let y = 0;
+    let side = 0;
+    let energy = 0;
+    for (const label of LABELS) {
+      const f = core.getFeatures(label);
+      if (!f) continue;
+      n++;
+      tilt += f.tilt;
+      open += f.openness;
+      up += f.curls.filter((curl) => curl < 0.4).length;
+      x += f.centroid.x;
+      y += f.centroid.y;
+      side += label === 'Left' ? -1 : 1;
+      if (core.getHandState(label)?.engaged) energy += 1;
     }
+    if (n === 0) {
+      ease('amp', 0.35, 0.02);
+      ease('tilt', 0, 0.02);
+      ease('energy', 0, 0.03);
+      ease('side', 0, 0.02);
+      return;
+    }
+    ease('tilt', Math.max(-0.5, Math.min(0.5, tilt / n)) * 0.3);
+    ease('amp', 0.22 + (open / n) * 0.55);
+    ease('freq', 0.9 + (up / n) * 0.22);
+    ease('x', x / n, 0.05);
+    ease('y', y / n, 0.05);
+    ease('side', side / n, 0.03);
+    ease('energy', energy / n, 0.05);
+  }
+
+  function paint(now: number): void {
+    readHands();
+    s.ripple *= 0.92;
+    if (!cv.hidden) paintTo(c, cv.width, cv.height, now);
+    if (shows('field')) {
+      const box = panelCv.parentElement!;
+      const w = Math.max(160, Math.min(560, box.clientWidth));
+      const h = Math.max(120, Math.round((w * box.clientHeight) / Math.max(1, box.clientWidth)));
+      if (panelCv.width !== w || panelCv.height !== h) {
+        panelCv.width = w;
+        panelCv.height = h;
+      }
+      paintTo(panelC, w, h, now);
+    }
+  }
+
+  /** The same scene, drawn into whichever canvas asks for it. */
+  function paintTo(c: CanvasRenderingContext2D, w: number, h: number, now: number): void {
+    const t = now / 1000;
+    const base = c.createLinearGradient(0, 0, 0, h);
+    base.addColorStop(0, '#05090f');
+    base.addColorStop(1, '#03070b');
+    c.fillStyle = base;
+    c.fillRect(0, 0, w, h);
+
+    // Left leans violet, Right leans cyan; engagement brightens the whole field.
+    const mix = (s.side + 1) / 2;
+    const r0 = Math.round(150 - 90 * mix);
+    const g0 = Math.round(120 + 80 * mix);
+    const b0 = Math.round(255 - 30 * mix);
+    const glow = 0.18 + s.energy * 0.16 + s.ripple * 0.25;
+
+    c.save();
+    c.translate(w / 2, h / 2);
+    c.rotate(s.tilt);
+    c.scale(1.35, 1.35); // cover the corners once tilted
+    c.translate(-w / 2, -h / 2);
+    c.globalCompositeOperation = 'lighter';
+    c.lineCap = 'round';
+
+    for (let i = 0; i < BANDS; i++) {
+      const p = i / (BANDS - 1);
+      const amp = h * s.amp * (0.10 + 0.05 * Math.sin(i * 1.7)) + s.ripple * h * 0.05;
+      const baseY = h * (0.18 + 0.64 * p) + (s.y - 0.5) * h * 0.18 + Math.sin(t * 0.17 + i) * h * 0.015;
+      const k = s.freq * (1 + i * 0.07) * Math.PI * 2;
+      const phase = t * (0.22 + i * 0.035) + s.x * 3;
+
+      c.beginPath();
+      for (let step = 0; step <= 48; step++) {
+        const xn = step / 48;
+        const y = baseY + amp * Math.sin(k * xn + phase) + amp * 0.45 * Math.sin(k * 1.7 * xn - phase * 0.6);
+        if (step === 0) c.moveTo(xn * w, y);
+        else c.lineTo(xn * w, y);
+      }
+      const line = c.createLinearGradient(0, 0, w, 0);
+      const a = (0.18 + glow) * (1 - p * 0.45);
+      line.addColorStop(0, `rgba(${r0}, ${g0}, ${b0}, 0)`);
+      line.addColorStop(0.5, `rgba(${r0}, ${g0}, ${b0}, ${a})`);
+      line.addColorStop(1, `rgba(${Math.round(r0 * 0.5)}, ${g0}, ${b0}, 0)`);
+      c.strokeStyle = line;
+      c.lineWidth = 1.4 + (1 - p) * 2.2 + s.ripple * 1.5;
+      c.stroke();
+    }
+
     c.globalCompositeOperation = 'source-over';
+    c.restore();
   }
 
   function loop(now: number): void {
     raf = requestAnimationFrame(loop);
-    if (now - last < 80) return; // ~12 fps is plenty for something this soft
+    if (now - last < 60) return; // ~16 fps: soft motion, negligible cost
     last = now;
     paint(now);
   }
 
-  function setEnabled(on: boolean): void {
-    cancelAnimationFrame(raf);
-    raf = 0;
-    cv.hidden = !on;
-    if (!on) return;
+  /** Runs only while something is actually showing the field. */
+  function sync(): void {
+    const wanted = !cv.hidden || shows('field');
+    const running = raf > 0;
+    if (wanted === running) return;
+    if (!wanted) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      return;
+    }
     resize();
     paint(performance.now());
-    raf = requestAnimationFrame(loop);
+    // A still frame is enough when the viewer asked for less motion.
+    if (!still.matches) raf = requestAnimationFrame(loop);
+  }
+
+  function setEnabled(on: boolean): void {
+    cv.hidden = !on;
+    sync();
   }
 
   let resizeTimer: number | undefined;
@@ -550,9 +649,10 @@ const backdrop = (() => {
 
   return {
     setEnabled,
+    sync,
     /** A gesture happened: nudge the field. */
     ripple(strength: number) {
-      ripple = Math.min(1, ripple + strength);
+      s.ripple = Math.min(1, s.ripple + strength);
     },
   };
 })();
@@ -1445,6 +1545,7 @@ const PANELS: { id: string; title: string }[] = [
   { id: 'reliability', title: 'Reliability' },
   { id: 'fixtures', title: 'Fixtures' },
   { id: 'source', title: 'Source' },
+  { id: 'field', title: 'Field' },
   { id: 'docs', title: 'Docs' },
 ];
 
@@ -1469,6 +1570,7 @@ const dock: DockviewApi = createDockview($('dock'), {
         visible.set(options.name, params.api.isVisible);
         params.api.onDidVisibilityChange((e) => {
           visible.set(options.name, e.isVisible);
+          backdrop.sync();
           if (!e.isVisible) return;
           draw();
           renderReadout();
@@ -1492,7 +1594,7 @@ function defaultLayout(): void {
   add('hand-right', { referencePanel: 'stage', direction: 'right' });
   add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
   add('tuning', { referencePanel: 'hand-right', direction: 'right' });
-  for (const id of ['gestures', 'reliability', 'fixtures', 'source', 'docs']) {
+  for (const id of ['gestures', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
     add(id, { referencePanel: 'tuning', direction: 'within' });
   }
   dock.getPanel('stage')?.api.group.api.setSize({ height: window.innerHeight * 0.62 });
