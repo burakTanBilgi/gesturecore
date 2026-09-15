@@ -143,6 +143,9 @@ Open `http://localhost:5173/bench/` in Chrome and press **Start camera**.
 - **Scroll test:** pinch-drag scrolling plus a false-activation session meter (press `F`).
 - **Fixtures:** capture a real hand (averaged over N frames) and save it to `test/fixtures/`.
 - **Source:** camera and resolution, MediaPipe confidence thresholds, GPU/CPU.
+- **Docs** (tab, or **? Docs** in the header): user guide covering the UI, how the pipeline
+  works, every gesture rule, a tuning guide and troubleshooting. The camera stays live
+  while it is open.
 
 Keys: `F` marks a false activation, `R` resets the core, `Space` pauses.
 

@@ -1373,9 +1373,20 @@ function showTab(name: string): void {
   saveSettings();
   for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === name);
   for (const pane of document.querySelectorAll<HTMLElement>('.tabpane')) pane.hidden = pane.dataset.pane !== name;
+  // Docs need room: they take over the readout column while open.
+  document.querySelector('main')!.classList.toggle('docs-open', name === 'docs');
 }
 tabButtons.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab!)));
 showTab(settings.tab);
+$('btnDocs').addEventListener('click', () => showTab(settings.tab === 'docs' ? 'tuning' : 'docs'));
+
+// In-page doc links scroll the docs pane without touching the URL.
+document.querySelector('.docs')!.addEventListener('click', (e) => {
+  const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#doc-"]');
+  if (!link) return;
+  e.preventDefault();
+  document.getElementById(link.getAttribute('href')!.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 $('btnCamera').addEventListener('click', () => (running ? stopCamera() : void startCamera()));
 $('btnClearLog').addEventListener('click', () => {
