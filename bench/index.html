@@ -17,13 +17,19 @@
         Chrome (frames, labels, tabs) stays neutral steel so it never competes.
       */
       :root {
-        --bg: #050b0f;
-        --bg-2: #08131a;
-        --bg-3: #0c1a22;
-        --frame: #23444e;
-        --frame-hi: #3d6b78;
+        --bg: #04080c;
+        --bg-2: rgba(8, 19, 26, 0.72);
+        --bg-3: rgba(12, 26, 34, 0.55);
+        --frame: rgba(104, 158, 172, 0.22);
+        --frame-hi: rgba(128, 196, 212, 0.45);
         --text: #cfe3e8;
         --muted: #7b9aa4;
+
+        /* interaction only — never a measurement. cyan = clickable, violet = surface */
+        --glow-action: rgba(79, 209, 224, 0.55);
+        --glow-surface: rgba(140, 120, 255, 0.4);
+        --r: 7px;
+        --r-sm: 4px;
 
         --data: #4fd1e0;
         --pending: #ffb13e;
@@ -40,15 +46,25 @@
       body {
         margin: 0;
         background: var(--bg);
-        background-image:
-          linear-gradient(rgba(79, 209, 224, 0.035) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(79, 209, 224, 0.035) 1px, transparent 1px);
-        background-size: 44px 44px, 44px 44px;
         color: var(--text);
-        font: 12px/1.4 var(--ui);
+        font: 300 12px/1.45 var(--ui);
+        letter-spacing: 0.015em;
         overflow: hidden;
       }
-      .mono, code, kbd, .v, #log { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+      .mono, code, kbd, .v, #log { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 300; }
+      b, strong { font-weight: 500; }
+
+      /* animated backdrop: a small blurred canvas, plus a static grid over it */
+      #bg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; filter: blur(26px) saturate(1.15); }
+      #bg[hidden] { display: none; }
+      body::after {
+        content: ''; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+        background-image:
+          linear-gradient(rgba(126, 209, 224, 0.028) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(126, 209, 224, 0.028) 1px, transparent 1px);
+        background-size: 46px 46px, 46px 46px;
+      }
+      header, #dock { position: relative; z-index: 2; }
 
       /* scrollbars: thin, square, neutral */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -62,25 +78,40 @@
 
       /* ── controls ─────────────────────────────────────────────────────── */
       button, select, input, textarea { font: inherit; color: inherit; }
+      /* Clickable things answer the mouse with a quick cyan glow. */
       button {
-        background: linear-gradient(var(--bg-3), var(--bg-2));
+        background: rgba(12, 26, 34, 0.25);
         border: 1px solid var(--frame);
+        border-radius: var(--r);
         color: var(--text);
-        padding: 3px 10px;
+        padding: 3px 11px;
         cursor: pointer;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.1em;
         font-size: 11px;
+        font-weight: 300;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
       }
-      button:hover { border-color: var(--frame-hi); background: #10242d; }
-      button:disabled { color: var(--raw); border-color: #1a3039; cursor: default; }
+      button:hover {
+        border-color: var(--glow-action);
+        color: var(--limit);
+        background: rgba(79, 209, 224, 0.07);
+        box-shadow: 0 0 12px var(--glow-action), inset 0 0 10px rgba(79, 209, 224, 0.12);
+      }
+      button:active { background: rgba(79, 209, 224, 0.14); }
+      button:disabled { color: var(--raw); border-color: rgba(104, 158, 172, 0.12); cursor: default; box-shadow: none; background: none; }
       button.primary { border-color: var(--frame-hi); color: var(--limit); }
-      button.primary:hover { background: #14303a; }
       select, input[type='number'], input[type='text'], textarea {
         background: var(--bg-3);
         border: 1px solid var(--frame);
-        padding: 2px 5px;
-        border-radius: 0;
+        padding: 2px 6px;
+        border-radius: var(--r-sm);
+        font-weight: 300;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
+      }
+      select:hover, input[type='number']:hover, input[type='text']:hover, textarea:hover {
+        border-color: var(--glow-action);
+        box-shadow: 0 0 9px rgba(79, 209, 224, 0.28);
       }
       select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visible {
         outline: 1px solid var(--frame-hi);
@@ -100,24 +131,31 @@
 
       input[type='checkbox'] {
         -webkit-appearance: none; appearance: none;
-        width: 12px; height: 12px; margin: 0;
-        background: var(--bg-3); border: 1px solid var(--frame);
+        width: 12px; height: 12px; margin: 0; border-radius: 3px;
+        background: var(--bg-3); border: 1px solid var(--frame); cursor: pointer;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
       }
+      input[type='checkbox']:hover { border-color: var(--glow-action); box-shadow: 0 0 9px var(--glow-action); }
       input[type='checkbox']:checked { background: var(--limit); border-color: var(--limit); }
       input[type='checkbox']:disabled { opacity: 0.4; }
 
       kbd {
-        border: 1px solid var(--frame); border-bottom-width: 2px; padding: 0 4px;
+        border: 1px solid var(--frame); border-radius: var(--r-sm); padding: 0 4px;
         font-size: 10px; background: var(--bg-3); color: var(--muted);
       }
+
+      /* Surfaces that are not clickable answer with a slower, violet glow. */
+      .surface { transition: box-shadow 0.5s ease, border-color 0.5s ease; }
+      .surface:hover { border-color: rgba(140, 120, 255, 0.35); box-shadow: 0 0 18px var(--glow-surface); }
 
       /* ── header ───────────────────────────────────────────────────────── */
       header {
         height: 32px; display: flex; align-items: center; gap: 12px; padding: 0 10px;
-        border-bottom: 1px solid var(--frame); background: var(--bg-2); white-space: nowrap; overflow: hidden;
+        border-bottom: 1px solid rgba(104, 158, 172, 0.14); background: rgba(6, 14, 20, 0.55);
+        white-space: nowrap; overflow: hidden;
       }
       header h1 {
-        font-size: 12px; margin: 0; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--limit);
+        font-size: 12px; margin: 0; font-weight: 400; letter-spacing: 0.22em; text-transform: uppercase; color: var(--limit);
       }
       header h1 span { color: var(--muted); font-weight: 400; }
       .stat { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -131,21 +169,23 @@
       .menu > summary { list-style: none; cursor: pointer; }
       .menu > summary::-webkit-details-marker { display: none; }
       .menu > div {
-        position: absolute; right: 0; top: 24px; z-index: 40; background: var(--bg-2);
-        border: 1px solid var(--frame-hi); padding: 4px; display: grid; gap: 2px; min-width: 150px;
+        position: absolute; right: 0; top: 24px; z-index: 40; background: rgba(6, 14, 20, 0.92);
+        border: 1px solid var(--frame); border-radius: var(--r); padding: 4px; display: grid; gap: 2px; min-width: 156px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
       }
       .menu button { width: 100%; text-align: left; border-color: transparent; background: none; }
-      .menu button:hover { border-color: var(--frame); }
 
       /* ── dock ─────────────────────────────────────────────────────────── */
       #dock { height: calc(100% - 32px); }
       #panels { display: none; }
-      .panel { height: 100%; overflow: auto; }
+      .panel { height: 100%; overflow: auto; background: var(--bg-2); }
       .pad { padding: 8px 10px 18px; }
+      /* glass: every panel but the camera lets the backdrop through */
+      body.glass .panel { background: transparent; }
 
       /* ── stage ────────────────────────────────────────────────────────── */
-      .panel.stage { display: flex; flex-direction: column; overflow: hidden; }
-      .stagewrap { position: relative; flex: 1; min-height: 0; background: #000; }
+      .panel.stage { display: flex; flex-direction: column; overflow: hidden; background: rgba(2, 6, 9, 0.85); }
+      .stagewrap { position: relative; flex: 1; min-height: 0; background: #000; border-radius: var(--r); overflow: hidden; }
       .stagewrap canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
       .stagewrap video { display: none; }
       #stageMsg {
@@ -155,7 +195,7 @@
       #stageMsg.error { color: var(--fault); }
       .key {
         display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 8px; color: var(--muted);
-        border-top: 1px solid var(--frame); font-size: 11px; flex: none;
+        border-top: 1px solid rgba(104, 158, 172, 0.14); font-size: 11px; flex: none;
       }
       .sw { display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: 0; }
       .sw.data { background: var(--data); } .sw.pending { background: var(--pending); }
@@ -164,7 +204,7 @@
 
       /* ── events log ───────────────────────────────────────────────────── */
       .panel.events { display: flex; flex-direction: column; overflow: hidden; }
-      .logbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--frame); flex: none; }
+      .logbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid rgba(104, 158, 172, 0.14); flex: none; }
       .logbar .spacer { flex: 1; }
       .logbar .check { display: flex; gap: 5px; align-items: center; color: var(--muted); }
       #log { flex: 1; overflow: auto; padding: 2px 0; font-size: 11px; }
@@ -177,21 +217,21 @@
       #log .move { color: var(--raw); }
 
       /* ── readout ──────────────────────────────────────────────────────── */
-      .hand { padding: 6px 8px 10px; }
+      .hand { padding: 6px 8px 10px; border: 1px solid transparent; border-radius: var(--r); margin: 2px; }
       .hand h2 { margin: 0 0 6px; font-size: 11px; display: flex; gap: 6px; align-items: center; letter-spacing: 0.1em; text-transform: uppercase; }
       .hand h2 .name { color: var(--limit); font-weight: 600; }
       .hand.absent .rows { opacity: 0.4; }
       .hand.absent h2 .name { color: var(--raw); }
       .badge {
-        font-size: 10px; padding: 0 5px; border: 1px solid var(--frame); color: var(--raw);
-        letter-spacing: 0.06em; text-transform: uppercase;
+        font-size: 10px; padding: 0 6px; border: 1px solid var(--frame); border-radius: 9px; color: var(--raw);
+        letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
       }
       .badge.pending { color: var(--pending); border-color: var(--pending); }
       .badge.on { color: var(--bg); background: var(--active); border-color: var(--active); }
       .row { display: grid; grid-template-columns: 84px 1fr 60px; align-items: center; gap: 6px; height: 16px; }
       .row .k { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .row .v { text-align: right; font-size: 11px; color: var(--text); }
-      .bar { position: relative; height: 7px; background: var(--bg-3); border: 1px solid #142c35; }
+      .bar { position: relative; height: 7px; background: rgba(12, 26, 34, 0.55); border: 1px solid rgba(104, 158, 172, 0.16); border-radius: 4px; overflow: hidden; }
       .bar > .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--data); width: 0; }
       .bar > .tick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--limit); }
       .bar > .tick.release { opacity: 0.55; }
@@ -212,14 +252,16 @@
 
       /* ── panel furniture ──────────────────────────────────────────────── */
       fieldset {
-        border: 1px solid var(--frame); margin: 0 0 10px; padding: 6px 8px 8px; position: relative;
+        border: 1px solid var(--frame); border-radius: var(--r); margin: 0 0 10px; padding: 6px 8px 8px; position: relative;
+        transition: box-shadow 0.5s ease, border-color 0.5s ease;
         background:
           linear-gradient(var(--frame-hi), var(--frame-hi)) 0 0 / 10px 1px no-repeat,
           linear-gradient(var(--frame-hi), var(--frame-hi)) 0 0 / 1px 10px no-repeat,
           linear-gradient(var(--frame-hi), var(--frame-hi)) 100% 100% / 10px 1px no-repeat,
           linear-gradient(var(--frame-hi), var(--frame-hi)) 100% 100% / 1px 10px no-repeat;
       }
-      legend { color: var(--muted); padding: 0 5px; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; }
+      fieldset:hover { border-color: rgba(140, 120, 255, 0.3); box-shadow: 0 0 18px var(--glow-surface); }
+      legend { color: var(--muted); padding: 0 5px; text-transform: uppercase; letter-spacing: 0.12em; font-size: 10px; }
       .ctl { display: grid; grid-template-columns: 108px 1fr 64px; gap: 6px; align-items: center; min-height: 22px; }
       .ctl label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .ctl input[type='range'] { width: 100%; }
@@ -232,7 +274,11 @@
       .check { display: flex; gap: 6px; align-items: center; min-height: 22px; }
 
       .meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; }
-      .meter div { border: 1px solid var(--frame); padding: 4px 6px; background: var(--bg-2); }
+      .meter div {
+        border: 1px solid var(--frame); border-radius: var(--r); padding: 4px 6px; background: rgba(8, 19, 26, 0.45);
+        transition: box-shadow 0.5s ease, border-color 0.5s ease;
+      }
+      .meter div:hover { border-color: rgba(140, 120, 255, 0.3); box-shadow: 0 0 18px var(--glow-surface); }
       .meter .n { font-size: 18px; font-family: var(--mono); color: var(--data); }
       .meter .n.fault { color: var(--fault); }
       .meter .l { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -254,19 +300,31 @@
       .docs p { margin: 6px 0; }
       .docs ul, .docs ol { margin: 6px 0; padding-left: 20px; }
       .docs li { margin: 3px 0; }
-      .docs code { background: var(--bg-3); border: 1px solid #142c35; padding: 0 4px; font-size: 11px; }
-      .docs pre { background: var(--bg-2); border: 1px solid var(--frame); padding: 8px 10px; overflow-x: auto; font-size: 11px; font-family: var(--mono); }
+      .docs code { background: var(--bg-3); border: 1px solid rgba(104, 158, 172, 0.16); border-radius: var(--r-sm); padding: 0 4px; font-size: 11px; }
+      .docs pre {
+        background: rgba(8, 19, 26, 0.45); border: 1px solid var(--frame); border-radius: var(--r); padding: 8px 10px;
+        overflow-x: auto; font-size: 11px; font-family: var(--mono); transition: box-shadow 0.5s ease, border-color 0.5s ease;
+      }
+      .docs pre:hover, .docs .tablewrap:hover, .docs .note:hover, .docs .figure svg:hover {
+        border-color: rgba(140, 120, 255, 0.3); box-shadow: 0 0 18px var(--glow-surface);
+      }
       .docs pre code { background: none; border: 0; padding: 0; }
+      .docs .tablewrap, .docs .note, .docs .figure svg { transition: box-shadow 0.5s ease, border-color 0.5s ease; border-radius: var(--r); }
       .docs table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
-      .docs th, .docs td { text-align: left; vertical-align: top; padding: 4px 8px; border-bottom: 1px solid #142c35; }
+      .docs th, .docs td { text-align: left; vertical-align: top; padding: 4px 8px; border-bottom: 1px solid rgba(104, 158, 172, 0.14); }
+      .docs tbody tr, .docs tr { transition: background-color 0.4s ease; }
+      .docs tr:hover { background: rgba(140, 120, 255, 0.07); }
       .docs th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em; }
       .docs td:first-child { white-space: nowrap; }
       .docs .tablewrap { overflow-x: auto; }
-      .docs .toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px 14px; border: 1px solid var(--frame); padding: 8px 12px; margin: 10px 0 4px; background: var(--bg-2); }
-      .docs .toc a { color: var(--text); text-decoration: none; }
-      .docs .toc a:hover { color: var(--data); }
+      .docs .toc {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px 14px;
+        border: 1px solid var(--frame); border-radius: var(--r); padding: 8px 12px; margin: 10px 0 4px; background: rgba(8, 19, 26, 0.45);
+      }
+      .docs .toc a, .docs a { color: var(--text); text-decoration: none; border-radius: var(--r-sm); padding: 0 3px; transition: color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease; }
+      .docs .toc a:hover, .docs a:hover { color: var(--limit); background: rgba(79, 209, 224, 0.08); box-shadow: 0 0 10px var(--glow-action); }
       .docs .lead { color: var(--muted); }
-      .docs .note { border-left: 2px solid var(--frame-hi); background: var(--bg-2); padding: 6px 10px; margin: 10px 0; }
+      .docs .note { border: 1px solid var(--frame); border-left: 2px solid var(--frame-hi); background: rgba(8, 19, 26, 0.45); padding: 6px 10px; margin: 10px 0; }
       .docs .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin: 10px 0; }
       .docs .flow div { background: var(--bg-2); border: 1px solid var(--frame); padding: 6px 8px; flex: 1 1 110px; font-size: 11px; color: var(--muted); }
       .docs .flow div b { display: block; color: var(--text); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -292,30 +350,30 @@
         --dv-floating-border: 1px solid var(--frame-hi);
         --dv-overlay-z-index: 999;
         --dv-tab-font-size: 11px;
-        --dv-border-radius: 0px;
+        --dv-border-radius: 8px;
         --dv-tab-margin: 0;
         --dv-sash-color: transparent;
         --dv-active-sash-color: var(--frame-hi);
         --dv-active-sash-transition-duration: 0.1s;
         --dv-active-sash-transition-delay: 0.2s;
         --dv-spacing-padding: 0px;
-        --dv-tab-border-radius: 0px;
-        --dv-sash-border-radius: 0px;
-        --dv-dropdown-border-radius: 0px;
-        --dv-tab-close-icon-size: inherit;
+        --dv-tab-border-radius: 7px;
+        --dv-sash-border-radius: 4px;
+        --dv-dropdown-border-radius: 7px;
+        --dv-tab-close-icon-size: 9px;
         --dv-floating-group-border: none;
         --dv-drag-over-border: none;
         --dv-floating-group-dragging-opacity: 0.5;
         --dv-floating-titlebar-height: 20px;
-        --dv-floating-titlebar-background-color: var(--bg-2);
-        --dv-floating-titlebar-border-bottom: 1px solid var(--frame);
+        --dv-floating-titlebar-background-color: rgba(8, 19, 26, 0.6);
+        --dv-floating-titlebar-border-bottom: 1px solid rgba(104, 158, 172, 0.12);
         --dv-group-view-background-color: var(--bg);
-        --dv-tabs-and-actions-container-background-color: var(--bg-2);
-        --dv-activegroup-visiblepanel-tab-background-color: var(--bg);
-        --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-2);
-        --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg);
-        --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-2);
-        --dv-tab-divider-color: var(--frame);
+        --dv-tabs-and-actions-container-background-color: rgba(6, 14, 20, 0.4);
+        --dv-activegroup-visiblepanel-tab-background-color: rgba(18, 40, 50, 0.45);
+        --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+        --dv-inactivegroup-visiblepanel-tab-background-color: rgba(18, 40, 50, 0.28);
+        --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+        --dv-tab-divider-color: transparent;
         --dv-activegroup-visiblepanel-tab-color: var(--limit);
         --dv-activegroup-hiddenpanel-tab-color: var(--muted);
         --dv-inactivegroup-visiblepanel-tab-color: var(--text);
@@ -327,16 +385,43 @@
       }
       .dockview-theme-fui .dv-tab {
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        border-right: 1px solid var(--frame);
+        letter-spacing: 0.12em;
+        font-weight: 300;
+        margin: 3px 2px;
+        border-radius: var(--dv-tab-border-radius);
+        height: calc(var(--dv-tabs-and-actions-container-height) - 6px);
+        border: 1px solid rgba(104, 158, 172, 0.1);
+        /* not an action: a slow violet answer to the mouse */
+        transition: box-shadow 0.5s ease, border-color 0.5s ease, background-color 0.35s ease, color 0.35s ease;
+      }
+      .dockview-theme-fui .dv-tab:hover {
+        border-color: rgba(140, 120, 255, 0.35);
+        box-shadow: 0 0 16px var(--glow-surface);
       }
       .dockview-theme-fui .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab {
-        box-shadow: inset 0 1px 0 var(--frame-hi);
+        border-color: rgba(128, 196, 212, 0.35);
       }
-      .dockview-theme-fui .dv-tabs-and-actions-container { border-bottom: 1px solid var(--frame); }
+      .dockview-theme-fui .dv-tabs-and-actions-container { border-bottom: 1px solid rgba(104, 158, 172, 0.1); height: 28px; }
+      .dockview-theme-fui .dv-tabs-overflow-dropdown-default, .dockview-theme-fui .dv-tabs-overflow-container {
+        border-radius: var(--dv-dropdown-border-radius);
+      }
+      /* close buttons: faint until wanted, and clickable, so they glow cyan */
+      .dockview-theme-fui .dv-default-tab-action {
+        opacity: 0.3; border-radius: 50%; padding: 2px; margin-left: 2px;
+        transition: opacity 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+      }
+      .dockview-theme-fui .dv-tab:hover .dv-default-tab-action { opacity: 0.6; }
+      .dockview-theme-fui .dv-default-tab-action:hover {
+        opacity: 1; background: rgba(79, 209, 224, 0.12); box-shadow: 0 0 10px var(--glow-action);
+      }
+      .dockview-theme-fui .dv-groupview { border-radius: var(--dv-border-radius); overflow: hidden; }
+      body.glass .dockview-theme-fui { --dv-group-view-background-color: transparent; }
+      /* the camera panel keeps a solid ground behind the video */
+      body.glass .dockview-theme-fui .dv-groupview:has(.panel.stage) { background: rgba(2, 6, 9, 0.5); }
     </style>
   </head>
   <body>
+    <canvas id="bg" width="2" height="2" aria-hidden="true"></canvas>
     <header>
       <h1>gesturecore <span>bench</span></h1>
       <span class="stat">cam <b id="stCamera" class="off">off</b></span>
@@ -536,6 +621,11 @@
           <div id="mpSliders"></div>
         </fieldset>
         <fieldset>
+          <legend>Appearance</legend>
+          <label class="check"><input type="checkbox" id="apBg" /> animated backdrop (drifts, and leans a little toward what your hands are doing)</label>
+          <label class="check"><input type="checkbox" id="apGlass" /> transparent panels (the camera keeps a solid ground)</label>
+        </fieldset>
+        <fieldset>
           <legend>Overlay</legend>
           <label class="check"><input type="checkbox" id="ovRaw" /> raw skeleton</label>
           <label class="check"><input type="checkbox" id="ovSmooth" /> smoothed skeleton (same One Euro settings as the core)</label>
@@ -609,6 +699,13 @@
             <tr><td><i class="sw raw"></i>grey</td><td>raw input, disabled, off</td><td>unsmoothed skeleton, disabled fingers, absent hands, <code>pinch:move</code> spam</td></tr>
           </table></div>
           <p>Left and right hands are told apart by their labels, never by colour, so colour can stay meaningful.</p>
+          <h3>Glow and backdrop</h3>
+          <p>Two colours belong to the interface rather than to the data, so they can never be confused with a measurement:</p>
+          <ul>
+            <li><b>Cyan glow</b> = you can click this. Buttons, links, fields, checkboxes and the tab close buttons light up quickly under the mouse.</li>
+            <li><b>Violet glow</b> = a surface, not an action. Tabs, panels, tables and code blocks answer with a slower, softer glow that fades in and out.</li>
+          </ul>
+          <p>The <b>backdrop</b> is a slow colour field that drifts on its own and leans slightly toward what your hands are doing: it warms while a hand is engaged and ripples when a pinch, pose or movement fires. It is deliberately faint — it should read as atmosphere, never as a readout. It repaints about twelve times a second on a tiny canvas and stops entirely when the tab is in the background. Both it and the transparent panels can be switched off in <b>Source → Appearance</b>.</p>
 
           <h2 id="doc-hand">4. Hand measurements</h2>
           <div class="figure">

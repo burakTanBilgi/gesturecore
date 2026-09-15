@@ -84,6 +84,8 @@ type BenchSettings = {
   showSmoothed: boolean;
   showVideo: boolean;
   showMoves: boolean;
+  glass: boolean;
+  animatedBg: boolean;
 };
 
 const DEFAULT_SETTINGS: BenchSettings = {
@@ -100,6 +102,8 @@ const DEFAULT_SETTINGS: BenchSettings = {
   showSmoothed: true,
   showVideo: true,
   showMoves: false,
+  glass: true,
+  animatedBg: true,
 };
 
 const stored = load<Partial<BenchSettings>>(LS.settings) ?? {};
@@ -339,6 +343,8 @@ function handleEvents(events: GestureEvent[]): void {
   for (const e of events) {
     session.onEvent(e);
     if (e.type === 'lost') smoothers.delete(e.hand);
+    if (e.type === 'pinch:start' || e.type === 'motion') backdrop.ripple(0.5);
+    else if (e.type === 'engage' || e.type === 'pose') backdrop.ripple(0.25);
     log(e);
   }
 }
@@ -455,6 +461,98 @@ const session = (() => {
       if (!active) return;
       falses++;
       render();
+    },
+  };
+})();
+
+// ── backdrop ─────────────────────────────────────────────────────────────────
+
+/**
+ * Slow colour field behind everything: four drifting blobs on a tiny canvas that CSS
+ * blurs to full size. It repaints ~12×/s (and not at all while the tab is hidden or
+ * the setting is off), so the cost stays in the noise next to hand tracking.
+ * Gestures only lean on it: engaged hands warm and widen it, pinches and movements
+ * send a small ripple through it.
+ */
+const backdrop = (() => {
+  const cv = $<HTMLCanvasElement>('bg');
+  const c = cv.getContext('2d', { alpha: false })!;
+  const BLOBS = [
+    { hue: [16, 74, 92], sx: 0.031, sy: 0.019, px: 0.0, py: 1.1, r: 0.62, a: 0.85 },
+    { hue: [12, 36, 88], sx: 0.023, sy: 0.027, px: 2.2, py: 0.4, r: 0.55, a: 0.75 },
+    { hue: [38, 22, 86], sx: 0.017, sy: 0.033, px: 4.1, py: 3.0, r: 0.48, a: 0.6 },
+    { hue: [10, 84, 74], sx: 0.029, sy: 0.015, px: 5.4, py: 2.2, r: 0.42, a: 0.5 },
+  ];
+  let raf = 0;
+  let last = 0;
+  let ripple = 0;
+  let warmth = 0;
+
+  const resize = () => {
+    const ratio = window.innerHeight / Math.max(1, window.innerWidth);
+    cv.width = 180;
+    cv.height = Math.max(60, Math.round(180 * ratio));
+  };
+
+  function paint(now: number): void {
+    const w = cv.width;
+    const h = cv.height;
+    const t = now / 1000;
+    // engaged hands warm the field; the ripple decays after each gesture
+    const engaged = LABELS.filter((l) => core.getHandState(l)?.engaged).length;
+    warmth += (engaged / 2 - warmth) * 0.08;
+    ripple *= 0.9;
+
+    c.fillStyle = '#04080c';
+    c.fillRect(0, 0, w, h);
+    c.globalCompositeOperation = 'lighter';
+    for (const b of BLOBS) {
+      const x = (0.5 + Math.sin(t * b.sx * 6.3 + b.px) * 0.4) * w;
+      const y = (0.5 + Math.cos(t * b.sy * 6.3 + b.py) * 0.42) * h;
+      const r = (b.r + ripple * 0.06 + warmth * 0.04) * Math.max(w, h);
+      const [rr, gg, bb] = b.hue as [number, number, number];
+      const g = c.createRadialGradient(x, y, 0, x, y, r);
+      const green = Math.round(gg + warmth * 26);
+      g.addColorStop(0, `rgba(${rr}, ${green}, ${bb}, ${b.a * (0.55 + ripple * 0.25)})`);
+      g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      c.fillStyle = g;
+      c.fillRect(0, 0, w, h);
+    }
+    c.globalCompositeOperation = 'source-over';
+  }
+
+  function loop(now: number): void {
+    raf = requestAnimationFrame(loop);
+    if (now - last < 80) return; // ~12 fps is plenty for something this soft
+    last = now;
+    paint(now);
+  }
+
+  function setEnabled(on: boolean): void {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    cv.hidden = !on;
+    if (!on) return;
+    resize();
+    paint(performance.now());
+    raf = requestAnimationFrame(loop);
+  }
+
+  let resizeTimer: number | undefined;
+  window.addEventListener('resize', () => {
+    if (cv.hidden) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      resize();
+      paint(performance.now());
+    }, 200);
+  });
+
+  return {
+    setEnabled,
+    /** A gesture happened: nudge the field. */
+    ripple(strength: number) {
+      ripple = Math.min(1, ripple + strength);
     },
   };
 })();
@@ -1266,6 +1364,12 @@ bindCheck('hdrSwap', 'flipHandedness', resetTracking);
 bindCheck('hdrMirror', 'mirror', resetTracking);
 $('keyMirror').textContent = settings.mirror ? 'view mirrored' : 'view not mirrored';
 
+const applyGlass = () => document.body.classList.toggle('glass', settings.glass);
+bindCheck('apGlass', 'glass', applyGlass);
+bindCheck('apBg', 'animatedBg', () => backdrop.setEnabled(settings.animatedBg));
+applyGlass();
+backdrop.setEnabled(settings.animatedBg);
+
 bindCheck('ovRaw', 'showRaw', draw);
 bindCheck('ovSmooth', 'showSmoothed', draw);
 bindCheck('ovVideo', 'showVideo', draw);
@@ -1352,6 +1456,8 @@ const FUI_THEME: DockviewTheme = { name: 'fui', className: 'dockview-theme-fui',
 
 const dock: DockviewApi = createDockview($('dock'), {
   theme: FUI_THEME,
+  // A lone panel's name spans its whole tab strip.
+  singleTabMode: 'fullwidth',
   // Panels stay mounted when hidden: the canvas, the log and every form keep their
   // state and their element ids. Per-frame work is skipped via `visible` instead.
   defaultRenderer: 'always',
