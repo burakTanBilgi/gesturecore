@@ -78,12 +78,44 @@ export type PoseDescription = {
 
 export type PoseMatch = { name: string; score: number };
 
+/**
+ * What a motion measures:
+ *   x, y   palm-centre travel in spans (hand-size units, so distance to the camera does not matter)
+ *   depth  change in span, relative (0.25 = the hand appears 25 % larger, i.e. moved toward the camera)
+ *   tilt   in-plane palm rotation, radians
+ */
+export type MotionAxis = 'x' | 'y' | 'depth' | 'tilt';
+
+export type MotionDescription = {
+  name: string;
+  axis: MotionAxis;
+  /**
+   * Sign of a single stroke: x +1 = toward +x of the input frame (the user's right in a mirrored view),
+   * y +1 = down, depth +1 = toward the camera, tilt +1 = rotating toward +x. Default +1.
+   * Ignored when `reversals` > 0: a wave may start either way.
+   */
+  direction?: 1 | -1;
+  /** Minimum travel of every stroke, in the axis' unit. */
+  distance: number;
+  /** All strokes must happen within this many milliseconds. */
+  withinMs: number;
+  /** Direction changes required: 0 = one stroke (swipe, push, twist), 3 = left-right-left-right wave. Default 0. */
+  reversals?: number;
+  /** Only movement made while this pose is held counts. */
+  pose?: string;
+  /** Minimum time before the same motion can fire again. Default 500. */
+  cooldownMs?: number;
+};
+
+export type MotionProgress = { name: string; progress: number };
+
 export type GestureEvent =
   | { type: 'engage' | 'disengage'; hand: HandLabel; t: number }
   | { type: 'pinch:start' | 'pinch:end'; hand: HandLabel; finger: PinchFinger; t: number }
   /** `value` is the normalised pinch (0 closed … 1 open) of the finger that started the pinch. */
   | { type: 'pinch:move'; hand: HandLabel; finger: PinchFinger; value: number; t: number }
   | { type: 'pose'; hand: HandLabel; name: string; t: number }
+  | { type: 'motion'; hand: HandLabel; name: string; t: number }
   | { type: 'lost'; hand: HandLabel; t: number };
 
 export type GestureEventType = GestureEvent['type'];
@@ -107,6 +139,8 @@ export interface GestureCoreConfig {
   /** A hand absent for longer than this is reported lost and its state cleared. */
   lostAfterMs: number;
   poses: PoseDescription[];
+  /** Movement gestures. Like pinch, they fire only while engaged and never while a pinch is closed. */
+  motions: MotionDescription[];
   /** Curl angle mapping, radians at the PIP joint (IP joint for the thumb). */
   curl: { straight: number; bent: number; thumbStraight: number; thumbBent: number };
   /** Per-finger fit falls from 1 to 0 over this curl distance outside the range. */
@@ -142,6 +176,8 @@ export type HandState = {
   poseProgress: number;
   /** Scores for every configured pose, in config order. */
   poseScores: PoseMatch[];
+  /** 0..1 progress of every configured motion, in config order (1 = would fire). */
+  motionProgress: MotionProgress[];
   /** Timestamp the hand was last present. */
   lastSeen: number;
 };

@@ -1,3 +1,4 @@
+import { DEFAULT_MOTIONS } from './motions/defaults.js';
 import { DEFAULT_POSES } from './poses/defaults.js';
 import type { GestureCoreConfig, GestureCoreConfigPatch } from './types.js';
 
@@ -14,6 +15,7 @@ export const DEFAULT_CONFIG: Readonly<GestureCoreConfig> = Object.freeze<Gesture
   dwellMs: 300,
   lostAfterMs: 150,
   poses: copy(DEFAULT_POSES) as GestureCoreConfig['poses'],
+  motions: copy(DEFAULT_MOTIONS) as GestureCoreConfig['motions'],
   curl: { straight: 0.25, bent: 2.4, thumbStraight: 0.2, thumbBent: 1.4 },
   poseFalloff: 0.15,
   aspect: 1,

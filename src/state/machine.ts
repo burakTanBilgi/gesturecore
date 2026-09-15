@@ -2,6 +2,7 @@ import { defaultConfig, mergeConfig } from '../config.js';
 import { extractFeatures, PINCH_FINGERS } from '../features/extract.js';
 import { LANDMARK_COUNT, unlerp } from '../features/geometry.js';
 import { LandmarkSmoother } from '../filter/oneEuro.js';
+import { motionProgress, type MotionSample } from '../motions/detect.js';
 import { bestPose, matchPoses } from '../poses/match.js';
 import type {
   Features,
@@ -11,9 +12,14 @@ import type {
   Hand,
   HandLabel,
   HandState,
+  MotionProgress,
   PinchFinger,
   PoseMatch,
 } from '../types.js';
+
+/** Longest movement history kept per hand, whatever withinMs says. */
+const MAX_MOTION_WINDOW_MS = 10_000;
+const DEFAULT_MOTION_COOLDOWN_MS = 500;
 
 /**
  * The only stateful module in gesturecore.
@@ -23,7 +29,7 @@ import type {
  *   absent  → after more than lostAfterMs, close everything and forget the hand
  *
  * Event ordering within one hand's frame:
- *   engage, pinch:end, pinch:start | pinch:move, pose
+ *   engage, pinch:end, pinch:start | pinch:move, pose, motion (in config order)
  * and on loss:
  *   pinch:end (if pinched), disengage (if engaged), lost
  *
@@ -59,6 +65,14 @@ type Track = {
   pose: string | null;
   poseSince: number;
   poseFired: boolean;
+
+  /** Recent palm movement, oldest first. */
+  samples: MotionSample[];
+  /** Movement before this time does not count (last frame that was not engaged, or had a pinch closed). */
+  motionFloor: number;
+  /** Last time each motion fired; movement before it has been used up. */
+  motionFired: Map<string, number>;
+  motionProgress: MotionProgress[];
 };
 
 function isValidHand(h: Hand): boolean {
@@ -128,6 +142,7 @@ export class GestureCore {
       pose: tr.pose,
       poseProgress: tr.pose === null ? 0 : tr.poseFired ? 1 : progress(this.now - tr.poseSince, c.dwellMs),
       poseScores: tr.poseScores.map((m) => ({ ...m })),
+      motionProgress: tr.motionProgress.map((m) => ({ ...m })),
       lastSeen: tr.lastSeen,
     };
   }
@@ -184,6 +199,10 @@ export class GestureCore {
         pose: null,
         poseSince: t,
         poseFired: false,
+        samples: [],
+        motionFloor: t,
+        motionFired: new Map(),
+        motionProgress: [],
       };
       this.tracks.set(label, tr);
     }
@@ -246,6 +265,32 @@ export class GestureCore {
       tr.poseFired = true;
       events.push({ type: 'pose', hand: label, name: tr.pose, t });
     }
+
+    // Motions: movement history → per-motion progress; fire at 1, then that movement is used up.
+    const aspect = c.aspect > 0 ? c.aspect : 1;
+    tr.samples.push({ t, x: features.centroid.x * aspect, y: features.centroid.y, span: features.span, tilt: features.tilt, pose: best });
+    let keepMs = 0;
+    for (const m of c.motions) keepMs = Math.max(keepMs, Number.isFinite(m.withinMs) ? m.withinMs : 0);
+    keepMs = Math.min(keepMs, MAX_MOTION_WINDOW_MS);
+    let drop = 0;
+    while (drop < tr.samples.length - 1 && tr.samples[drop]!.t < t - keepMs) drop++;
+    if (drop > 0) tr.samples.splice(0, drop);
+
+    // Pinch-drag owns hand movement, and un-engaged movement never counts.
+    const blocked = !tr.engaged || tr.pinchFinger !== null;
+    if (blocked) tr.motionFloor = t;
+    tr.motionProgress = c.motions.map((m) => {
+      if (blocked) return { name: m.name, progress: 0 };
+      const since = Math.max(tr.motionFloor, tr.motionFired.get(m.name) ?? -Infinity);
+      return { name: m.name, progress: motionProgress(tr.samples, m, since) };
+    });
+    c.motions.forEach((m, i) => {
+      if (tr.motionProgress[i]!.progress < 1) return;
+      const last = tr.motionFired.get(m.name);
+      if (last !== undefined && t - last < (m.cooldownMs ?? DEFAULT_MOTION_COOLDOWN_MS)) return;
+      tr.motionFired.set(m.name, t);
+      events.push({ type: 'motion', hand: label, name: m.name, t });
+    });
   }
 
   private engage(tr: Track, label: HandLabel, t: number, events: GestureEvent[]): void {
