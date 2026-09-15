@@ -3,687 +3,824 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
     <title>gesturecore bench</title>
     <style>
+      /*
+        Colour is functional here. Six meanings, used everywhere (canvas, bars, log, docs):
+          data    a live measurement
+          pending a condition is met and a timer is charging
+          active  engaged, pinching, fired
+          fault   lost, failed, unintended
+          limit   a threshold or value you set
+          raw     unfiltered input, disabled, off
+        Chrome (frames, labels, tabs) stays neutral steel so it never competes.
+      */
       :root {
-        --bg: #0f1115;
-        --panel: #171a21;
-        --panel-2: #1e222b;
-        --line: #2a2f3a;
-        --text: #d7dbe3;
-        --muted: #8a92a3;
-        --accent: #5cc8ff;
-        --engage: #4dd6c1;
-        --pose: #ffb547;
-        --pinch: #ff5fa2;
-        --ok: #62d26f;
-        --bad: #ff6b6b;
-        --left: #8f9dff;
-        --right: #ffd166;
-        color-scheme: dark;
+        --bg: #050b0f;
+        --bg-2: #08131a;
+        --bg-3: #0c1a22;
+        --frame: #23444e;
+        --frame-hi: #3d6b78;
+        --text: #cfe3e8;
+        --muted: #7b9aa4;
+
+        --data: #4fd1e0;
+        --pending: #ffb13e;
+        --active: #35e08a;
+        --fault: #ff5064;
+        --limit: #eef7f9;
+        --raw: #55747e;
+
+        --mono: 'Cascadia Mono', Consolas, 'SF Mono', 'DejaVu Sans Mono', monospace;
+        --ui: Bahnschrift, 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
       }
       * { box-sizing: border-box; }
       html, body { height: 100%; }
       body {
         margin: 0;
         background: var(--bg);
+        background-image:
+          linear-gradient(rgba(79, 209, 224, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(79, 209, 224, 0.035) 1px, transparent 1px);
+        background-size: 44px 44px, 44px 44px;
         color: var(--text);
-        font: 12px/1.35 ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+        font: 12px/1.4 var(--ui);
         overflow: hidden;
       }
+      .mono, code, kbd, .v, #log { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+      /* scrollbars: thin, square, neutral */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
+      ::-webkit-scrollbar-thumb { background: #1d3a44; border: 1px solid var(--frame); }
+      ::-webkit-scrollbar-thumb:hover { background: var(--frame-hi); }
+      ::-webkit-scrollbar-corner { background: transparent; }
+      @supports not selector(::-webkit-scrollbar) {
+        * { scrollbar-width: thin; scrollbar-color: #1d3a44 transparent; }
+      }
+
+      /* ── controls ─────────────────────────────────────────────────────── */
       button, select, input, textarea { font: inherit; color: inherit; }
       button {
-        background: var(--panel-2);
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 3px 8px;
+        background: linear-gradient(var(--bg-3), var(--bg-2));
+        border: 1px solid var(--frame);
+        color: var(--text);
+        padding: 3px 10px;
         cursor: pointer;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 11px;
       }
-      button:hover { border-color: var(--accent); }
-      button.primary { background: #1d3a4d; border-color: #2f6d8f; }
+      button:hover { border-color: var(--frame-hi); background: #10242d; }
+      button:disabled { color: var(--raw); border-color: #1a3039; cursor: default; }
+      button.primary { border-color: var(--frame-hi); color: var(--limit); }
+      button.primary:hover { background: #14303a; }
       select, input[type='number'], input[type='text'], textarea {
-        background: var(--bg);
-        border: 1px solid var(--line);
-        border-radius: 4px;
-        padding: 2px 4px;
+        background: var(--bg-3);
+        border: 1px solid var(--frame);
+        padding: 2px 5px;
+        border-radius: 0;
       }
-      textarea { width: 100%; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
-      code, .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+      select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-visible {
+        outline: 1px solid var(--frame-hi);
+        outline-offset: 1px;
+      }
+      textarea { width: 100%; resize: vertical; font-family: var(--mono); font-size: 11px; }
 
+      input[type='range'] { -webkit-appearance: none; appearance: none; background: transparent; height: 14px; }
+      input[type='range']::-webkit-slider-runnable-track { height: 2px; background: var(--frame); }
+      input[type='range']::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 7px; height: 13px; margin-top: -5px; background: var(--limit); border: 0;
+      }
+      input[type='range']::-moz-range-track { height: 2px; background: var(--frame); }
+      input[type='range']::-moz-range-thumb { width: 7px; height: 13px; background: var(--limit); border: 0; border-radius: 0; }
+      input[type='range']:hover::-webkit-slider-thumb { background: #fff; }
+
+      input[type='checkbox'] {
+        -webkit-appearance: none; appearance: none;
+        width: 12px; height: 12px; margin: 0;
+        background: var(--bg-3); border: 1px solid var(--frame);
+      }
+      input[type='checkbox']:checked { background: var(--limit); border-color: var(--limit); }
+      input[type='checkbox']:disabled { opacity: 0.4; }
+
+      kbd {
+        border: 1px solid var(--frame); border-bottom-width: 2px; padding: 0 4px;
+        font-size: 10px; background: var(--bg-3); color: var(--muted);
+      }
+
+      /* ── header ───────────────────────────────────────────────────────── */
       header {
-        height: 34px;
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        padding: 0 10px;
-        border-bottom: 1px solid var(--line);
-        background: var(--panel);
-        white-space: nowrap;
-        overflow: hidden;
+        height: 32px; display: flex; align-items: center; gap: 12px; padding: 0 10px;
+        border-bottom: 1px solid var(--frame); background: var(--bg-2); white-space: nowrap; overflow: hidden;
       }
-      header h1 { font-size: 13px; margin: 0; font-weight: 600; }
-      header .stat { color: var(--muted); }
-      header .stat b { color: var(--text); font-weight: 500; }
+      header h1 {
+        font-size: 12px; margin: 0; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--limit);
+      }
+      header h1 span { color: var(--muted); font-weight: 400; }
+      .stat { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+      .stat b { font-family: var(--mono); font-weight: 500; color: var(--data); letter-spacing: 0; text-transform: none; }
+      .stat b.off { color: var(--raw); }
+      .stat b.on { color: var(--active); }
       header .spacer { flex: 1; }
+      header .check { color: var(--muted); display: flex; gap: 5px; align-items: center; font-size: 11px; }
 
-      main {
-        height: calc(100% - 34px);
-        display: grid;
-        grid-template-columns: minmax(420px, 1.35fr) minmax(300px, 0.9fr) minmax(330px, 1fr);
-        gap: 1px;
-        background: var(--line);
+      .menu { position: relative; }
+      .menu > summary { list-style: none; cursor: pointer; }
+      .menu > summary::-webkit-details-marker { display: none; }
+      .menu > div {
+        position: absolute; right: 0; top: 24px; z-index: 40; background: var(--bg-2);
+        border: 1px solid var(--frame-hi); padding: 4px; display: grid; gap: 2px; min-width: 150px;
       }
-      main > section { background: var(--bg); min-height: 0; display: flex; flex-direction: column; }
+      .menu button { width: 100%; text-align: left; border-color: transparent; background: none; }
+      .menu button:hover { border-color: var(--frame); }
 
-      /* stage */
-      .stage { position: relative; background: #000; flex: none; }
-      .stage canvas { display: block; width: 100%; height: auto; }
-      .stage video { display: none; }
+      /* ── dock ─────────────────────────────────────────────────────────── */
+      #dock { height: calc(100% - 32px); }
+      #panels { display: none; }
+      .panel { height: 100%; overflow: auto; }
+      .pad { padding: 8px 10px 18px; }
+
+      /* ── stage ────────────────────────────────────────────────────────── */
+      .panel.stage { display: flex; flex-direction: column; overflow: hidden; }
+      .stagewrap { position: relative; flex: 1; min-height: 0; background: #000; }
+      .stagewrap canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+      .stagewrap video { display: none; }
       #stageMsg {
         position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-        text-align: center; padding: 20px; color: var(--muted); font-size: 13px; pointer-events: none;
+        text-align: center; padding: 20px; color: var(--muted); pointer-events: none;
       }
-      #stageMsg.error { color: var(--bad); }
-      .legend { display: flex; gap: 10px; padding: 4px 8px; color: var(--muted); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-      .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+      #stageMsg.error { color: var(--fault); }
+      .key {
+        display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 8px; color: var(--muted);
+        border-top: 1px solid var(--frame); font-size: 11px; flex: none;
+      }
+      .sw { display: inline-block; width: 8px; height: 8px; margin-right: 4px; vertical-align: 0; }
+      .sw.data { background: var(--data); } .sw.pending { background: var(--pending); }
+      .sw.active { background: var(--active); } .sw.fault { background: var(--fault); }
+      .sw.limit { background: var(--limit); } .sw.raw { background: var(--raw); }
 
-      .logbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+      /* ── events log ───────────────────────────────────────────────────── */
+      .panel.events { display: flex; flex-direction: column; overflow: hidden; }
+      .logbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--frame); flex: none; }
       .logbar .spacer { flex: 1; }
-      #log { flex: 1; overflow: auto; padding: 2px 0; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+      .logbar .check { display: flex; gap: 5px; align-items: center; color: var(--muted); }
+      #log { flex: 1; overflow: auto; padding: 2px 0; font-size: 11px; }
       #log div { padding: 0 8px; white-space: nowrap; }
-      #log .t { color: var(--muted); display: inline-block; width: 58px; }
-      #log .h { display: inline-block; width: 40px; }
-      #log .h.Left { color: var(--left); }
-      #log .h.Right { color: var(--right); }
-      #log .engage, #log .disengage { color: var(--engage); }
-      #log .pose { color: var(--pose); }
-      #log .pinch { color: var(--pinch); }
-      #log .lost { color: var(--bad); }
-      #log .motion { color: var(--accent); font-weight: 600; }
-      .row.motion .fill { background: var(--accent); }
-      #log .move { color: var(--muted); }
+      #log .t { color: var(--muted); display: inline-block; width: 56px; }
+      #log .h { display: inline-block; width: 34px; color: var(--text); }
+      #log .engage, #log .pose, #log .motion, #log .pinchstart { color: var(--active); }
+      #log .disengage, #log .pinchend { color: var(--text); }
+      #log .lost { color: var(--fault); }
+      #log .move { color: var(--raw); }
 
-      /* readout */
-      .col-readout { overflow: auto; }
-      .hand { border-bottom: 1px solid var(--line); padding: 6px 8px 8px; }
-      .hand h2 { margin: 0 0 4px; font-size: 12px; display: flex; gap: 6px; align-items: center; }
-      .hand h2 .name { font-weight: 600; }
-      .hand.Left h2 .name { color: var(--left); }
-      .hand.Right h2 .name { color: var(--right); }
-      .badge { font-size: 10px; padding: 0 5px; border-radius: 8px; border: 1px solid var(--line); color: var(--muted); }
-      .badge.on.engage { color: #06201c; background: var(--engage); border-color: var(--engage); }
-      .badge.on.pinch { color: #2b0615; background: var(--pinch); border-color: var(--pinch); }
-      .badge.on.pose { color: #2a1a00; background: var(--pose); border-color: var(--pose); }
-      .hand.absent .rows { opacity: 0.35; }
-      .row { display: grid; grid-template-columns: 86px 1fr 62px; align-items: center; gap: 6px; height: 16px; }
+      /* ── readout ──────────────────────────────────────────────────────── */
+      .hand { padding: 6px 8px 10px; }
+      .hand h2 { margin: 0 0 6px; font-size: 11px; display: flex; gap: 6px; align-items: center; letter-spacing: 0.1em; text-transform: uppercase; }
+      .hand h2 .name { color: var(--limit); font-weight: 600; }
+      .hand.absent .rows { opacity: 0.4; }
+      .hand.absent h2 .name { color: var(--raw); }
+      .badge {
+        font-size: 10px; padding: 0 5px; border: 1px solid var(--frame); color: var(--raw);
+        letter-spacing: 0.06em; text-transform: uppercase;
+      }
+      .badge.pending { color: var(--pending); border-color: var(--pending); }
+      .badge.on { color: var(--bg); background: var(--active); border-color: var(--active); }
+      .row { display: grid; grid-template-columns: 84px 1fr 60px; align-items: center; gap: 6px; height: 16px; }
       .row .k { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      header .check { color: var(--muted); }
-      .row .v { text-align: right; font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
-      .bar { position: relative; height: 8px; background: var(--panel-2); border-radius: 2px; overflow: hidden; }
-      .bar > .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); width: 0; }
-      .bar > .tick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: #fff; opacity: 0.7; }
-      .bar > .tick.release { background: var(--pinch); }
+      .row .v { text-align: right; font-size: 11px; color: var(--text); }
+      .bar { position: relative; height: 7px; background: var(--bg-3); border: 1px solid #142c35; }
+      .bar > .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--data); width: 0; }
+      .bar > .tick { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--limit); }
+      .bar > .tick.release { opacity: 0.55; }
       .bar.centered > .fill { left: 50%; }
-      .row.progress .fill { background: var(--muted); }
-      .row.engage .fill { background: var(--engage); }
-      .row.pose .fill { background: var(--pose); }
-      .row.pinch .fill { background: var(--pinch); }
-      .row.best .k { color: var(--pose); }
+      .row.dwell .fill { background: var(--pending); }
+      .row.dwell.done .fill { background: var(--active); }
+      .row.motion .fill { background: var(--pending); }
+      .row.held .k { color: var(--pending); }
+      .row.fired .k { color: var(--active); }
       .multibar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
-      .multibar .bar.active > .fill { background: var(--pinch); }
-      .multibar .bar > .fill { background: #6f7a8f; }
+      .multibar .bar > .fill { background: var(--data); }
+      .multibar .bar.closing > .fill { background: var(--pending); }
+      .multibar .bar.pinched > .fill { background: var(--active); }
+      .multibar .bar.off { opacity: 0.35; }
+      .multibar .bar.off > .fill { background: var(--raw); }
       .fingers { display: flex; gap: 8px; flex-wrap: wrap; }
-      .sep { height: 5px; }
+      .sep { height: 6px; }
 
-      /* panel */
-      .tabs { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
-      .tabs button { border: 0; border-radius: 0; background: transparent; padding: 7px 9px; color: var(--muted); border-bottom: 2px solid transparent; }
-      .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
-      .tabpane { flex: 1; overflow: auto; padding: 8px 10px 16px; }
-      .tabpane[hidden] { display: none; }
-      fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 10px; padding: 4px 8px 8px; }
-      legend { color: var(--muted); padding: 0 4px; }
-      .ctl { display: grid; grid-template-columns: 104px 1fr 66px; gap: 6px; align-items: center; min-height: 22px; }
+      /* ── panel furniture ──────────────────────────────────────────────── */
+      fieldset {
+        border: 1px solid var(--frame); margin: 0 0 10px; padding: 6px 8px 8px; position: relative;
+        background:
+          linear-gradient(var(--frame-hi), var(--frame-hi)) 0 0 / 10px 1px no-repeat,
+          linear-gradient(var(--frame-hi), var(--frame-hi)) 0 0 / 1px 10px no-repeat,
+          linear-gradient(var(--frame-hi), var(--frame-hi)) 100% 100% / 10px 1px no-repeat,
+          linear-gradient(var(--frame-hi), var(--frame-hi)) 100% 100% / 1px 10px no-repeat;
+      }
+      legend { color: var(--muted); padding: 0 5px; text-transform: uppercase; letter-spacing: 0.1em; font-size: 10px; }
+      .ctl { display: grid; grid-template-columns: 108px 1fr 64px; gap: 6px; align-items: center; min-height: 22px; }
       .ctl label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .ctl input[type='range'] { width: 100%; }
-      .ctl input[type='number'] { width: 66px; text-align: right; }
-      .ctl.changed label::after { content: ' •'; color: var(--accent); }
+      .ctl input[type='number'] { width: 64px; text-align: right; }
+      .ctl.changed label::after { content: ' ◆'; color: var(--limit); font-size: 9px; }
       .hint { color: var(--muted); margin: 4px 0; }
       .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
-      .err { color: var(--bad); white-space: pre-wrap; }
-      .okmsg { color: var(--ok); }
+      .err { color: var(--fault); white-space: pre-wrap; }
+      .okmsg { color: var(--active); }
       .check { display: flex; gap: 6px; align-items: center; min-height: 22px; }
 
-      .meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 6px 0; }
-      .meter div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
-      .meter .n { font-size: 17px; font-family: ui-monospace, Consolas, monospace; }
-      .meter .l { color: var(--muted); font-size: 10px; }
-      .verdict.pass { color: var(--ok); }
-      .verdict.fail { color: var(--bad); }
-      #scrollBox {
-        height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel);
-        outline: 2px solid transparent; transition: outline-color 0.1s;
-      }
-      #scrollBox.dragging { outline-color: var(--pinch); }
-      #scrollBox p { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-      #scrollBox p:nth-child(5n) { background: var(--panel-2); }
-      #scrollBox p b { color: var(--accent); }
-      .sessions { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
-      /* docs */
-      main.docs-open { grid-template-columns: minmax(300px, 1.1fr) minmax(0, 1.9fr); }
-      main.docs-open .col-readout { display: none; }
-      .tabs { overflow-x: auto; }
-      .tabs button { padding: 7px 8px; white-space: nowrap; }
-      .tabs button[data-tab='docs'] { margin-left: auto; color: var(--accent); }
+      .meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0; }
+      .meter div { border: 1px solid var(--frame); padding: 4px 6px; background: var(--bg-2); }
+      .meter .n { font-size: 18px; font-family: var(--mono); color: var(--data); }
+      .meter .n.fault { color: var(--fault); }
+      .meter .l { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+      .verdict.pass { color: var(--active); }
+      .verdict.fail { color: var(--fault); }
+      .sessions { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+      .steps { margin: 6px 0; padding-left: 18px; }
+      .steps li { margin: 3px 0; }
+
+      /* ── docs ─────────────────────────────────────────────────────────── */
       .docs { padding: 0; }
-      .docs-body { max-width: 780px; padding: 12px 22px 60px; font-size: 13px; line-height: 1.55; }
-      .docs h2 { font-size: 18px; margin: 30px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-      .docs h2:first-of-type { border-top: 0; margin-top: 8px; }
-      .docs h3 { font-size: 14px; margin: 20px 0 6px; color: var(--accent); }
-      .docs p, .docs li { color: var(--text); }
+      .docs-body { max-width: 820px; padding: 10px 18px 60px; line-height: 1.55; }
+      .docs h2 {
+        font-size: 15px; margin: 26px 0 8px; padding-top: 8px; border-top: 1px solid var(--frame);
+        text-transform: uppercase; letter-spacing: 0.1em; color: var(--limit);
+      }
+      .docs h2:first-of-type { border-top: 0; margin-top: 6px; }
+      .docs h3 { font-size: 12px; margin: 18px 0 4px; color: var(--data); text-transform: uppercase; letter-spacing: 0.08em; }
       .docs p { margin: 6px 0; }
-      .docs ul, .docs ol { margin: 6px 0; padding-left: 22px; }
+      .docs ul, .docs ol { margin: 6px 0; padding-left: 20px; }
       .docs li { margin: 3px 0; }
-      .docs code { background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: 12px; }
-      .docs pre { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; font-size: 12px; }
+      .docs code { background: var(--bg-3); border: 1px solid #142c35; padding: 0 4px; font-size: 11px; }
+      .docs pre { background: var(--bg-2); border: 1px solid var(--frame); padding: 8px 10px; overflow-x: auto; font-size: 11px; font-family: var(--mono); }
       .docs pre code { background: none; border: 0; padding: 0; }
-      .docs table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12.5px; }
-      .docs th, .docs td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-      .docs th { color: var(--muted); font-weight: 500; }
+      .docs table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
+      .docs th, .docs td { text-align: left; vertical-align: top; padding: 4px 8px; border-bottom: 1px solid #142c35; }
+      .docs th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em; }
       .docs td:first-child { white-space: nowrap; }
       .docs .tablewrap { overflow-x: auto; }
-      .docs .toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 2px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; margin: 10px 0 4px; }
+      .docs .toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px 14px; border: 1px solid var(--frame); padding: 8px 12px; margin: 10px 0 4px; background: var(--bg-2); }
       .docs .toc a { color: var(--text); text-decoration: none; }
-      .docs .toc a:hover { color: var(--accent); }
-      .docs .lead { font-size: 14px; color: var(--muted); }
-      .docs .note { border-left: 3px solid var(--accent); background: var(--panel); padding: 6px 10px; border-radius: 0 6px 6px 0; margin: 10px 0; }
-      .docs .warn { border-left-color: var(--pose); }
+      .docs .toc a:hover { color: var(--data); }
+      .docs .lead { color: var(--muted); }
+      .docs .note { border-left: 2px solid var(--frame-hi); background: var(--bg-2); padding: 6px 10px; margin: 10px 0; }
       .docs .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin: 10px 0; }
-      .docs .flow div { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; flex: 1 1 110px; font-size: 12px; }
-      .docs .flow div b { display: block; color: var(--accent); font-size: 12px; }
-      .docs .flow .arrow { flex: 0 0 auto; background: none; border: 0; padding: 0; align-self: center; color: var(--muted); }
-      .docs .flow .core { border-color: #2f6d8f; }
+      .docs .flow div { background: var(--bg-2); border: 1px solid var(--frame); padding: 6px 8px; flex: 1 1 110px; font-size: 11px; color: var(--muted); }
+      .docs .flow div b { display: block; color: var(--text); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+      .docs .flow .arrow { flex: 0 0 auto; background: none; border: 0; padding: 0; align-self: center; color: var(--frame-hi); }
+      .docs .flow .core { border-color: var(--frame-hi); }
       .docs .figure { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; margin: 10px 0; }
-      .docs .figure svg { flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-width: 100%; height: auto; }
-      .docs .figure > div { flex: 1 1 260px; }
-      .docs .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 3px; }
-      .docs .timeline { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
-      kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; font-size: 11px; background: var(--panel-2); }
+      .docs .figure svg { flex: none; background: var(--bg-2); border: 1px solid var(--frame); max-width: 100%; height: auto; }
+      .docs .figure > div { flex: 1 1 240px; }
+      .docs .keytable td:first-child { width: 90px; }
+
+      /* ── dockview theme: neutral chrome, no colour meaning ────────────── */
+      .dockview-theme-fui {
+        color-scheme: dark;
+        --dv-paneview-active-outline-color: var(--frame-hi);
+        --dv-tabs-and-actions-container-font-size: 11px;
+        --dv-tabs-and-actions-container-height: 26px;
+        --dv-drag-over-background-color: rgba(79, 209, 224, 0.12);
+        --dv-drag-over-border-color: var(--frame-hi);
+        --dv-edge-dock-indicator-color: rgba(79, 209, 224, 0.5);
+        --dv-tabs-container-scrollbar-color: var(--frame);
+        --dv-icon-hover-background-color: rgba(79, 209, 224, 0.15);
+        --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        --dv-floating-border: 1px solid var(--frame-hi);
+        --dv-overlay-z-index: 999;
+        --dv-tab-font-size: 11px;
+        --dv-border-radius: 0px;
+        --dv-tab-margin: 0;
+        --dv-sash-color: transparent;
+        --dv-active-sash-color: var(--frame-hi);
+        --dv-active-sash-transition-duration: 0.1s;
+        --dv-active-sash-transition-delay: 0.2s;
+        --dv-spacing-padding: 0px;
+        --dv-tab-border-radius: 0px;
+        --dv-sash-border-radius: 0px;
+        --dv-dropdown-border-radius: 0px;
+        --dv-tab-close-icon-size: inherit;
+        --dv-floating-group-border: none;
+        --dv-drag-over-border: none;
+        --dv-floating-group-dragging-opacity: 0.5;
+        --dv-floating-titlebar-height: 20px;
+        --dv-floating-titlebar-background-color: var(--bg-2);
+        --dv-floating-titlebar-border-bottom: 1px solid var(--frame);
+        --dv-group-view-background-color: var(--bg);
+        --dv-tabs-and-actions-container-background-color: var(--bg-2);
+        --dv-activegroup-visiblepanel-tab-background-color: var(--bg);
+        --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-2);
+        --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg);
+        --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-2);
+        --dv-tab-divider-color: var(--frame);
+        --dv-activegroup-visiblepanel-tab-color: var(--limit);
+        --dv-activegroup-hiddenpanel-tab-color: var(--muted);
+        --dv-inactivegroup-visiblepanel-tab-color: var(--text);
+        --dv-inactivegroup-hiddenpanel-tab-color: var(--raw);
+        --dv-separator-border: var(--frame);
+        --dv-paneview-header-border-color: var(--frame);
+        --dv-context-menu-background-color: var(--bg-2);
+        --dv-context-menu-color: var(--text);
+      }
+      .dockview-theme-fui .dv-tab {
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        border-right: 1px solid var(--frame);
+      }
+      .dockview-theme-fui .dv-groupview.dv-active-group > .dv-tabs-and-actions-container .dv-tabs-container > .dv-tab.dv-active-tab {
+        box-shadow: inset 0 1px 0 var(--frame-hi);
+      }
+      .dockview-theme-fui .dv-tabs-and-actions-container { border-bottom: 1px solid var(--frame); }
     </style>
   </head>
   <body>
     <header>
-      <h1>gesturecore bench</h1>
-      <span class="stat">camera <b id="stCamera">off</b></span>
-      <span class="stat">delegate <b id="stDelegate">–</b></span>
+      <h1>gesturecore <span>bench</span></h1>
+      <span class="stat">cam <b id="stCamera" class="off">off</b></span>
+      <span class="stat">delegate <b id="stDelegate" class="off">–</b></span>
       <span class="stat">fps <b id="stFps">–</b></span>
       <span class="stat">detect <b id="stDetect">–</b></span>
       <span class="stat">core <b id="stCore">–</b></span>
       <span class="spacer"></span>
-      <label class="check" title="Flip the camera image (and the coordinates the core receives) horizontally"><input type="checkbox" id="hdrMirror" /> mirror view</label>
-      <label class="check" title="Raise only your right hand: it should be labelled Right. If not, tick this."><input type="checkbox" id="hdrSwap" /> swap L/R</label>
-      <span class="stat"><kbd>F</kbd> false · <kbd>R</kbd> reset · <kbd>Space</kbd> pause</span>
-      <button id="btnDocs" title="How the bench and gesturecore work">? Docs</button>
+      <label class="check" title="Flip the camera image (and the x coordinates the core receives)">
+        <input type="checkbox" id="hdrMirror" /> mirror
+      </label>
+      <label class="check" title="Raise only your right hand: it should be labelled Right. If not, tick this.">
+        <input type="checkbox" id="hdrSwap" /> swap l/r
+      </label>
+      <span class="stat"><kbd>Space</kbd> pause <kbd>R</kbd> reset</span>
+      <details class="menu" id="panelMenu">
+        <summary><button type="button" tabindex="-1">Panels</button></summary>
+        <div id="panelMenuList"></div>
+      </details>
+      <button id="btnDocs" title="How the bench and gesturecore work">Docs</button>
       <button id="btnCamera" class="primary">Start camera</button>
     </header>
-    <main>
-      <section class="col-stage">
-        <div class="stage">
+
+    <div id="dock" class="dockview-theme-fui"></div>
+
+    <!-- Panel bodies live here until dockview mounts them. -->
+    <div id="panels">
+      <div class="panel stage" data-panel="stage">
+        <div class="stagewrap">
           <canvas id="overlay" width="640" height="480"></canvas>
           <video id="video" playsinline muted></video>
           <div id="stageMsg">Press <b>&nbsp;Start camera&nbsp;</b> and allow camera access.</div>
         </div>
-        <div class="legend">
-          <span><i style="background: var(--engage)"></i>engage ring</span>
-          <span><i style="background: var(--pose)"></i>pose ring</span>
-          <span><i style="background: var(--pinch)"></i>pinch ring</span>
-          <span><i style="background: #fff"></i>smoothed</span>
-          <span><i style="background: #777"></i>raw</span>
-          <span id="legendMirror">view is mirrored</span>
+        <div class="key">
+          <span><i class="sw data"></i>measured</span>
+          <span><i class="sw pending"></i>charging</span>
+          <span><i class="sw active"></i>active</span>
+          <span><i class="sw fault"></i>lost</span>
+          <span><i class="sw limit"></i>your limit</span>
+          <span><i class="sw raw"></i>raw / off</span>
+          <span id="keyRings">rings: outer engage · inner pose · small pinch</span>
+          <span id="keyMirror">view mirrored</span>
         </div>
+      </div>
+
+      <div class="panel events" data-panel="events">
         <div class="logbar">
-          <b>Events</b>
           <label class="check"><input type="checkbox" id="chkMoves" /> each pinch:move</label>
           <span class="spacer"></span>
           <button id="btnClearLog">Clear</button>
         </div>
         <div id="log"></div>
-      </section>
+      </div>
 
-      <section class="col-readout" id="readout"></section>
+      <div class="panel" data-panel="hand-right" id="handRight"></div>
+      <div class="panel" data-panel="hand-left" id="handLeft"></div>
 
-      <section class="col-panel">
-        <nav class="tabs" id="tabs">
-          <button data-tab="tuning">Tuning</button>
-          <button data-tab="poses">Gestures</button>
-          <button data-tab="scroll">Scroll test</button>
-          <button data-tab="fixtures">Fixtures</button>
-          <button data-tab="source">Source</button>
-          <button data-tab="docs">Docs</button>
-        </nav>
+      <div class="panel pad" data-panel="tuning">
+        <div class="btns">
+          <button id="btnResetConfig">Reset to defaults</button>
+          <button id="btnCopyConfig">Copy config</button>
+          <button id="btnImportToggle">Import…</button>
+        </div>
+        <div id="importBox" hidden>
+          <textarea id="importText" rows="6" placeholder="Paste a config JSON object"></textarea>
+          <div class="btns"><button id="btnImportApply" class="primary">Apply</button></div>
+        </div>
+        <div id="configMsg" class="hint"></div>
+        <div id="sliders"></div>
+        <p class="hint">Every change goes straight to <code>core.setConfig()</code> and is saved in this browser only. ◆ marks values that differ from the defaults.</p>
+      </div>
 
-        <div class="tabpane" data-pane="tuning">
+      <div class="panel pad" data-panel="gestures">
+        <p class="hint">Gestures are plain data: <b>poses</b> are hand shapes, <b>movements</b> are how the hand travels. Both take effect on the next frame and are saved with the config.</p>
+
+        <fieldset>
+          <legend>Record a pose from your hand</legend>
+          <p class="hint">Hold the hand shape. The recorder averages each finger's curl and makes a pose that matches your curls ± the tolerance.</p>
+          <div class="ctl"><label>name</label><input type="text" id="grName" placeholder="e.g. peace" /><span></span></div>
+          <div class="ctl"><label>hand</label><select id="grHand"><option>Right</option><option>Left</option></select><span></span></div>
+          <div class="ctl"><label>tolerance ±</label><input type="range" id="grTol" min="0.05" max="0.4" step="0.01" value="0.15" /><input type="number" id="grTolN" min="0.05" max="0.4" step="0.01" value="0.15" /></div>
+          <div class="ctl"><label>countdown (s)</label><input type="range" id="grDelay" min="0" max="10" step="1" value="3" /><input type="number" id="grDelayN" min="0" max="10" step="1" value="3" /></div>
+          <label class="check"><input type="checkbox" id="grThumb" /> include thumb (its curl is noisier)</label>
+          <div class="btns"><button id="grRecord" class="primary">Record pose</button></div>
+          <div id="grStatus" class="hint"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Build a movement</legend>
+          <div class="ctl"><label>name</label><input type="text" id="mvName" placeholder="e.g. swipeUp" /><span></span></div>
+          <div class="ctl"><label>measure</label>
+            <select id="mvAxis">
+              <option value="x">sideways (x)</option>
+              <option value="y">up / down (y)</option>
+              <option value="depth">toward / away from camera</option>
+              <option value="tilt">twist (palm rotation)</option>
+            </select><span></span></div>
+          <div class="ctl"><label>direction</label><select id="mvDir"></select><span></span></div>
+          <div class="ctl"><label>distance</label><input type="number" id="mvDist" min="0.01" step="0.05" value="1.5" /><span class="hint" id="mvUnit"></span></div>
+          <div class="ctl"><label>within (ms)</label><input type="number" id="mvWithin" min="50" step="50" value="400" /><span></span></div>
+          <div class="ctl"><label>back-and-forth</label><input type="number" id="mvRev" min="0" max="10" step="1" value="0" /><span class="hint">reversals</span></div>
+          <div class="ctl"><label>while holding</label><select id="mvPose"></select><span></span></div>
+          <div class="ctl"><label>cooldown (ms)</label><input type="number" id="mvCool" min="0" step="50" value="500" /><span></span></div>
+          <p class="hint" id="mvHint"></p>
+          <div class="btns"><button id="mvAdd" class="primary">Add movement</button></div>
+          <div id="mvMsg"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Poses (JSON)</legend>
+          <p class="hint">Curl ranges are inclusive, 0 = straight, 1 = fully bent. Unlisted fingers are ignored.</p>
+          <textarea id="posesText" rows="12"></textarea>
           <div class="btns">
-            <button id="btnResetConfig">Reset all to defaults</button>
-            <button id="btnCopyConfig">Copy config JSON</button>
-            <button id="btnImportToggle">Import JSON…</button>
+            <button id="btnPosesApply" class="primary">Apply poses</button>
+            <button id="btnPosesReset">Reset</button>
           </div>
-          <div id="importBox" hidden>
-            <textarea id="importText" rows="6" placeholder="Paste a config JSON object"></textarea>
-            <div class="btns"><button id="btnImportApply" class="primary">Apply</button></div>
-          </div>
-          <div id="configMsg" class="hint"></div>
-          <div id="sliders"></div>
-          <p class="hint">Every change goes straight to <code>core.setConfig()</code> and is saved in this browser only. A dot marks values that differ from the defaults.</p>
-        </div>
+          <div id="posesMsg"></div>
+        </fieldset>
 
-        <div class="tabpane" data-pane="poses" hidden>
-          <p class="hint">Gestures are plain data: <b>poses</b> are hand shapes, <b>movements</b> are how the hand travels. Both take effect on the next frame and are saved with the config.</p>
-
-          <fieldset>
-            <legend>Record a pose from your hand</legend>
-            <p class="hint">Hold the hand shape. The recorder averages each finger's curl and makes a pose that matches your curls ± the tolerance.</p>
-            <div class="ctl"><label>name</label><input type="text" id="grName" placeholder="e.g. peace" /><span></span></div>
-            <div class="ctl"><label>hand</label><select id="grHand"><option>Right</option><option>Left</option></select><span></span></div>
-            <div class="ctl"><label>tolerance ±</label><input type="range" id="grTol" min="0.05" max="0.4" step="0.01" value="0.15" /><input type="number" id="grTolN" min="0.05" max="0.4" step="0.01" value="0.15" /></div>
-            <div class="ctl"><label>countdown (s)</label><input type="range" id="grDelay" min="0" max="10" step="1" value="3" /><input type="number" id="grDelayN" min="0" max="10" step="1" value="3" /></div>
-            <label class="check"><input type="checkbox" id="grThumb" /> include thumb (its curl is noisier)</label>
-            <div class="btns"><button id="grRecord" class="primary">Record pose</button></div>
-            <div id="grStatus" class="hint"></div>
-          </fieldset>
-
-          <fieldset>
-            <legend>Build a movement</legend>
-            <div class="ctl"><label>name</label><input type="text" id="mvName" placeholder="e.g. swipeUp" /><span></span></div>
-            <div class="ctl"><label>measure</label>
-              <select id="mvAxis">
-                <option value="x">sideways (x)</option>
-                <option value="y">up / down (y)</option>
-                <option value="depth">toward / away from camera</option>
-                <option value="tilt">twist (palm rotation)</option>
-              </select><span></span></div>
-            <div class="ctl"><label>direction</label><select id="mvDir"></select><span></span></div>
-            <div class="ctl"><label>distance</label><input type="number" id="mvDist" min="0.01" step="0.05" value="1.5" /><span class="hint" id="mvUnit"></span></div>
-            <div class="ctl"><label>within (ms)</label><input type="number" id="mvWithin" min="50" step="50" value="400" /><span></span></div>
-            <div class="ctl"><label>back-and-forth</label><input type="number" id="mvRev" min="0" max="10" step="1" value="0" /><span class="hint">reversals</span></div>
-            <div class="ctl"><label>while holding</label><select id="mvPose"></select><span></span></div>
-            <div class="ctl"><label>cooldown (ms)</label><input type="number" id="mvCool" min="0" step="50" value="500" /><span></span></div>
-            <p class="hint" id="mvHint"></p>
-            <div class="btns"><button id="mvAdd" class="primary">Add movement</button></div>
-            <div id="mvMsg"></div>
-          </fieldset>
-
-          <fieldset>
-            <legend>Poses (JSON)</legend>
-            <p class="hint">Curl ranges are inclusive, 0 = straight, 1 = fully bent. Unlisted fingers are ignored.</p>
-            <textarea id="posesText" rows="12"></textarea>
-            <div class="btns">
-              <button id="btnPosesApply" class="primary">Apply poses</button>
-              <button id="btnPosesReset">Reset to defaults</button>
-            </div>
-            <div id="posesMsg"></div>
-          </fieldset>
-
-          <fieldset>
-            <legend>Movements (JSON)</legend>
-            <textarea id="motionsText" rows="12"></textarea>
-            <div class="btns">
-              <button id="btnMotionsApply" class="primary">Apply movements</button>
-              <button id="btnMotionsReset">Reset to defaults</button>
-            </div>
-            <div id="motionsMsg"></div>
-          </fieldset>
-        </div>
-
-        <div class="tabpane" data-pane="scroll" hidden>
-          <fieldset>
-            <legend>False-activation session</legend>
-            <p class="hint">Start a session and use the page normally: type, reach, rest your hands, pinch-scroll when you mean to. Press <kbd>F</kbd> each time a pinch starts that you did <i>not</i> intend. Target: fewer than 2 per 10 minutes.</p>
-            <div class="meter">
-              <div><div class="n" id="mElapsed">0:00</div><div class="l">elapsed</div></div>
-              <div><div class="n" id="mActs">0</div><div class="l">pinch starts</div></div>
-              <div><div class="n" id="mFalse">0</div><div class="l">false (F)</div></div>
-              <div><div class="n" id="mRate">–</div><div class="l">false / 10 min</div></div>
-            </div>
-            <div class="btns">
-              <button id="btnSession" class="primary">Start session</button>
-              <button id="btnSessionReset">Reset</button>
-              <span id="mVerdict" class="verdict"></span>
-            </div>
-            <div class="sessions" id="sessionHistory"></div>
-          </fieldset>
-          <fieldset>
-            <legend>Pinch to scroll</legend>
-            <div class="ctl"><label>hand</label>
-              <select id="scrollHand"><option value="any">either</option><option value="Left">Left</option><option value="Right">Right</option></select><span></span></div>
-            <div class="ctl"><label>pinch finger</label>
-              <select id="scrollFinger"><option value="any">any</option><option>index</option><option>middle</option><option>ring</option><option>pinky</option></select><span></span></div>
-            <div class="ctl"><label>gain</label><input type="range" id="scrollGain" min="0.5" max="12" step="0.1" /><input type="number" id="scrollGainN" min="0.5" max="12" step="0.1" /></div>
-            <label class="check"><input type="checkbox" id="scrollInvert" /> invert direction</label>
-            <p class="hint">Engage (hold the engage pose), then pinch and move your hand up or down, like dragging a page.</p>
-            <div id="scrollBox"></div>
-          </fieldset>
-        </div>
-
-        <div class="tabpane" data-pane="fixtures" hidden>
-          <p class="hint">Records a real hand into the test fixture format: 21 points averaged over several frames, stored isotropic (aspect already applied). Saving writes <code>test/fixtures/&lt;name&gt;.json</code>; run <code>npm test</code> afterward.</p>
-          <div class="ctl"><label>fixture</label>
-            <select id="fxName"><option>open</option><option>fist</option><option>point</option><option>pinch</option><option value="custom">custom…</option></select><span></span></div>
-          <div class="ctl" id="fxCustomRow" hidden><label>custom name</label><input type="text" id="fxCustom" placeholder="e.g. thumbs-up" /><span></span></div>
-          <div class="ctl"><label>hand</label>
-            <select id="fxHand"><option>Right</option><option>Left</option></select><span></span></div>
-          <div class="ctl"><label>frames to average</label><input type="range" id="fxFrames" min="1" max="60" step="1" value="15" /><input type="number" id="fxFramesN" min="1" max="60" step="1" value="15" /></div>
-          <div class="ctl"><label>countdown (s)</label><input type="range" id="fxDelay" min="0" max="10" step="1" value="3" /><input type="number" id="fxDelayN" min="0" max="10" step="1" value="3" /></div>
-          <div class="btns"><button id="btnCapture" class="primary">Capture</button></div>
-          <div id="fxStatus" class="hint"></div>
-          <div id="fxPreview" class="mono hint"></div>
-          <textarea id="fxJson" rows="10" placeholder="Captured JSON appears here"></textarea>
+        <fieldset>
+          <legend>Movements (JSON)</legend>
+          <textarea id="motionsText" rows="12"></textarea>
           <div class="btns">
-            <button id="btnFxSave">Save to test/fixtures</button>
-            <button id="btnFxCopy">Copy JSON</button>
+            <button id="btnMotionsApply" class="primary">Apply movements</button>
+            <button id="btnMotionsReset">Reset</button>
           </div>
-          <div id="fxMsg"></div>
+          <div id="motionsMsg"></div>
+        </fieldset>
+      </div>
+
+      <div class="panel pad" data-panel="reliability">
+        <fieldset>
+          <legend>False activations per 10 minutes</legend>
+          <p class="hint">
+            This measures the core rather than adding a feature: while you use the computer normally, how often
+            does gesturecore fire a gesture you did not mean? The target is fewer than <b>2 per 10 minutes</b>.
+            If it fails, the defaults need retuning (usually <code>pinch.closed</code>, <code>hysteresis</code>,
+            <code>dwellMs</code>, <code>engage.dwellMs</code>).
+          </p>
+          <ol class="steps">
+            <li>Start the camera and sit as you normally do, hands in view.</li>
+            <li>Press <b>Start</b> below.</li>
+            <li>Work normally for at least 10 minutes: type, reach for things, rest your hands, and gesture on purpose now and then.</li>
+            <li>Every time the log shows a pinch or movement you did <i>not</i> intend, press <kbd>F</kbd>.</li>
+          </ol>
+          <div class="meter">
+            <div><div class="n" id="mElapsed">0:00</div><div class="l">elapsed</div></div>
+            <div><div class="n" id="mActs">0</div><div class="l">activations</div></div>
+            <div><div class="n fault" id="mFalse">0</div><div class="l">false (F)</div></div>
+            <div><div class="n" id="mRate">–</div><div class="l">false / 10 min</div></div>
+          </div>
+          <div class="btns">
+            <button id="btnSession" class="primary">Start</button>
+            <button id="btnSessionReset">Reset</button>
+            <span id="mVerdict" class="verdict"></span>
+          </div>
+          <div class="sessions" id="sessionHistory"></div>
+        </fieldset>
+      </div>
+
+      <div class="panel pad" data-panel="fixtures">
+        <p class="hint">Records a real hand into the test fixture format: 21 points averaged over several frames, stored isotropic (aspect already applied). Saving writes <code>test/fixtures/&lt;name&gt;.json</code>; run <code>npm test</code> afterwards.</p>
+        <div class="ctl"><label>fixture</label>
+          <select id="fxName"><option>open</option><option>fist</option><option>point</option><option>pinch</option><option value="custom">custom…</option></select><span></span></div>
+        <div class="ctl" id="fxCustomRow" hidden><label>custom name</label><input type="text" id="fxCustom" placeholder="e.g. thumbs-up" /><span></span></div>
+        <div class="ctl"><label>hand</label>
+          <select id="fxHand"><option>Right</option><option>Left</option></select><span></span></div>
+        <div class="ctl"><label>frames to average</label><input type="range" id="fxFrames" min="1" max="60" step="1" value="15" /><input type="number" id="fxFramesN" min="1" max="60" step="1" value="15" /></div>
+        <div class="ctl"><label>countdown (s)</label><input type="range" id="fxDelay" min="0" max="10" step="1" value="3" /><input type="number" id="fxDelayN" min="0" max="10" step="1" value="3" /></div>
+        <div class="btns"><button id="btnCapture" class="primary">Capture</button></div>
+        <div id="fxStatus" class="hint"></div>
+        <div id="fxPreview" class="mono hint"></div>
+        <textarea id="fxJson" rows="10" placeholder="Captured JSON appears here"></textarea>
+        <div class="btns">
+          <button id="btnFxSave">Save to test/fixtures</button>
+          <button id="btnFxCopy">Copy JSON</button>
         </div>
+        <div id="fxMsg"></div>
+      </div>
 
-        <div class="tabpane" data-pane="source" hidden>
-          <fieldset>
-            <legend>Camera</legend>
-            <div class="ctl"><label>device</label><select id="srcDevice"><option value="">default</option></select><span></span></div>
-            <div class="ctl"><label>resolution</label>
-              <select id="srcRes"><option>320x240</option><option>640x480</option><option>1280x720</option></select><span></span></div>
-            <div class="ctl"><label>aspect (auto)</label><span class="mono" id="srcAspect">–</span><span></span></div>
-          </fieldset>
-          <fieldset>
-            <legend>Orientation</legend>
-            <p class="hint"><b>mirror view</b> (header) flips the image like a mirror, so moving your hand right moves it right on screen. It also flips the x coordinates the core receives.</p>
-            <p class="hint"><b>swap L/R</b> (header) only changes the Left/Right label. Raise only your <b>right</b> hand: it should say <b>Right</b>. The two settings are independent.</p>
-          </fieldset>
-          <fieldset>
-            <legend>MediaPipe</legend>
-            <div class="ctl"><label>delegate</label><select id="srcDelegate"><option>GPU</option><option>CPU</option></select><span></span></div>
-            <div id="mpSliders"></div>
-          </fieldset>
-          <fieldset>
-            <legend>Overlay</legend>
-            <label class="check"><input type="checkbox" id="ovRaw" /> raw skeleton</label>
-            <label class="check"><input type="checkbox" id="ovSmooth" /> smoothed skeleton (same One Euro settings as the core)</label>
-            <label class="check"><input type="checkbox" id="ovVideo" /> camera image</label>
-          </fieldset>
-        </div>
+      <div class="panel pad" data-panel="source">
+        <fieldset>
+          <legend>Camera</legend>
+          <div class="ctl"><label>device</label><select id="srcDevice"><option value="">default</option></select><span></span></div>
+          <div class="ctl"><label>resolution</label>
+            <select id="srcRes"><option>320x240</option><option>640x480</option><option>1280x720</option></select><span></span></div>
+          <div class="ctl"><label>aspect (auto)</label><span class="mono" id="srcAspect">–</span><span></span></div>
+        </fieldset>
+        <fieldset>
+          <legend>Orientation</legend>
+          <p class="hint"><b>mirror</b> (header) flips the image like a mirror, so moving your hand right moves it right on screen. It also flips the x coordinates the core receives, which affects tilt sign and swipe direction.</p>
+          <p class="hint"><b>swap L/R</b> (header) only changes the Left/Right label. Raise only your <b>right</b> hand: it should say Right. The two settings are independent.</p>
+        </fieldset>
+        <fieldset>
+          <legend>MediaPipe</legend>
+          <div class="ctl"><label>delegate</label><select id="srcDelegate"><option>GPU</option><option>CPU</option></select><span></span></div>
+          <div id="mpSliders"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Overlay</legend>
+          <label class="check"><input type="checkbox" id="ovRaw" /> raw skeleton</label>
+          <label class="check"><input type="checkbox" id="ovSmooth" /> smoothed skeleton (same One Euro settings as the core)</label>
+          <label class="check"><input type="checkbox" id="ovVideo" /> camera image</label>
+        </fieldset>
+      </div>
 
-        <div class="tabpane docs" data-pane="docs" hidden>
-          <div class="docs-body">
-            <h2 id="doc-top">gesturecore bench</h2>
-            <p class="lead">A workbench for <b>gesturecore</b>, a small library that turns camera hand tracking into clean gesture events: pinches, poses, movements. The bench shows everything the library sees and thinks, and lets you tune it live and design new gestures. The camera stays running on the left while you read.</p>
+      <!-- ── docs ─────────────────────────────────────────────────────── -->
+      <div class="panel docs" data-panel="docs">
+        <div class="docs-body">
+          <h2 id="doc-top">gesturecore bench</h2>
+          <p class="lead">A workbench for <b>gesturecore</b>, a small library that turns camera hand tracking into clean gesture events: pinches, poses, movements. The bench shows everything the library measures and decides, lets you tune every constant live, and lets you design new gestures without writing code.</p>
 
-            <nav class="toc">
-              <a href="#doc-start">1. Quick start</a>
-              <a href="#doc-how">2. How it works</a>
-              <a href="#doc-hand">3. Hand measurements</a>
-              <a href="#doc-engage">4. Engagement</a>
-              <a href="#doc-pinch">5. Pinch</a>
-              <a href="#doc-poses">6. Poses</a>
-              <a href="#doc-motions">7. Movements</a>
-              <a href="#doc-loss">8. Losing a hand</a>
-              <a href="#doc-screen">9. The screen</a>
-              <a href="#doc-tabs">10. The tabs</a>
-              <a href="#doc-tuning">11. Tuning guide</a>
-              <a href="#doc-code">12. Using it in code</a>
-              <a href="#doc-trouble">13. Troubleshooting</a>
-              <a href="#doc-files">14. Files and saving</a>
-            </nav>
+          <nav class="toc">
+            <a href="#doc-start">1. Quick start</a>
+            <a href="#doc-how">2. How it works</a>
+            <a href="#doc-colour">3. Colour key</a>
+            <a href="#doc-hand">4. Hand measurements</a>
+            <a href="#doc-engage">5. Engagement</a>
+            <a href="#doc-pinch">6. Pinch</a>
+            <a href="#doc-poses">7. Poses</a>
+            <a href="#doc-motions">8. Movements</a>
+            <a href="#doc-loss">9. Losing a hand</a>
+            <a href="#doc-workspace">10. The workspace</a>
+            <a href="#doc-panels">11. The panels</a>
+            <a href="#doc-tuning">12. Tuning guide</a>
+            <a href="#doc-code">13. Using it in code</a>
+            <a href="#doc-trouble">14. Troubleshooting</a>
+            <a href="#doc-files">15. Files and saving</a>
+          </nav>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-start">1. Quick start</h2>
-            <ol>
-              <li>Press <b>Start camera</b> (top right) and allow camera access.</li>
-              <li>Raise only your <b>right</b> hand. Its label on the video should say <b>Right</b>. If it says Left, tick <b>swap L/R</b> in the header.</li>
-              <li>Hold an <b>open palm</b> toward the camera. A teal ring fills around your palm; when it closes the hand is <b>engaged</b>.</li>
-              <li>Touch your thumb tip to a fingertip and hold. A small pink ring fills between them; when full you get <code>pinch:start</code> with the finger's name in the <b>Events</b> log.</li>
-              <li>Open the <b>Scroll test</b> tab, engage, pinch, and move your hand up and down to scroll the text.</li>
-              <li>Try a quick sideways swipe (engaged, not pinching): <code>motion swipeLeft</code> / <code>swipeRight</code> appears in the log.</li>
-            </ol>
-            <div class="note">Nothing here is saved on a server. Slider positions, gestures and session history live in this browser only (see <a href="#doc-files">Files and saving</a>).</div>
+          <h2 id="doc-start">1. Quick start</h2>
+          <ol>
+            <li>Press <b>Start camera</b> (top right) and allow camera access.</li>
+            <li>Raise only your <b>right</b> hand. Its label on the video should say <b>Right</b>. If it says Left, tick <b>swap L/R</b> in the header.</li>
+            <li>Hold an <b>open palm</b> toward the camera. A ring fills around your palm; when it turns green the hand is <b>engaged</b>.</li>
+            <li>Touch your thumb tip to a fingertip and hold. A small ring fills between them; when full you get <code>pinch:start</code> with the finger's name in the <b>Events</b> panel.</li>
+            <li>Engaged and not pinching, make a quick sideways swipe: <code>motion swipeRight</code> appears in the log.</li>
+            <li>Open <b>Gestures</b> to record a pose from your own hand, or build your own movement.</li>
+          </ol>
+          <div class="note">Nothing is sent anywhere. Tuning, gestures, layout and session history live in this browser only; see <a href="#doc-files">Files and saving</a>.</div>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-how">2. How it works</h2>
-            <p>Every camera frame goes through the same one-way pipeline:</p>
-            <div class="flow">
-              <div><b>Camera</b>a video frame</div><span class="arrow">→</span>
-              <div><b>MediaPipe</b>finds up to 2 hands, 21 points each, plus a Left/Right guess</div><span class="arrow">→</span>
-              <div><b>Bench adapter</b>mirrors the view, fixes the label, adds a timestamp</div><span class="arrow">→</span>
-              <div class="core"><b>Smoothing</b>One Euro filter on every point</div><span class="arrow">→</span>
-              <div class="core"><b>Features</b>curls, pinch distances, openness, tilt, size…</div><span class="arrow">→</span>
-              <div class="core"><b>Rules + timers</b>poses, engage, pinch, movements, loss</div><span class="arrow">→</span>
-              <div><b>Events</b>shown in the log and used by the scroll demo</div>
-            </div>
-            <p>The blue-bordered boxes are <b>gesturecore</b> itself. It has no idea there is a camera, a browser or a screen: it receives 21 points per hand and a time, and returns a list of events. That is what lets the same library drive a browser-control tool, a music instrument, or run in Node tests with no camera at all. Everything else on this page (camera, drawing, sliders, storage) is the <b>bench</b>, which is just the first program using the library.</p>
-            <p>Gestures are <b>geometric rules, not machine learning</b>. MediaPipe does the hard part (finding the hand); gesturecore only measures angles and distances and applies thresholds and timers. So every decision is explainable: the readout column shows the exact numbers each rule looks at.</p>
-            <h3>Two ideas used everywhere</h3>
-            <ul>
-              <li><b>Hysteresis</b>: an on/off decision uses two thresholds, one to switch on and a looser one to switch off. A value hovering near a single line would otherwise flicker on-off-on every frame.</li>
-              <li><b>Dwell</b>: a state has to hold continuously for some time (default 300 ms) before its event fires. Any frame that breaks it resets the timer to zero. The filling rings on the video are these timers.</li>
-            </ul>
+          <h2 id="doc-how">2. How it works</h2>
+          <p>Every camera frame goes through the same one-way pipeline:</p>
+          <div class="flow">
+            <div><b>Camera</b>a video frame</div><span class="arrow">→</span>
+            <div><b>MediaPipe</b>finds up to 2 hands, 21 points each, plus a Left/Right guess</div><span class="arrow">→</span>
+            <div><b>Bench adapter</b>mirrors the view, fixes the label, adds a timestamp</div><span class="arrow">→</span>
+            <div class="core"><b>Smoothing</b>One Euro filter on every point</div><span class="arrow">→</span>
+            <div class="core"><b>Features</b>curls, pinch distances, openness, tilt, size…</div><span class="arrow">→</span>
+            <div class="core"><b>Rules + timers</b>poses, engage, pinch, movements, loss</div><span class="arrow">→</span>
+            <div><b>Events</b>listed in the Events panel</div>
+          </div>
+          <p>The outlined boxes are <b>gesturecore</b> itself. It has no idea there is a camera, a browser or a screen: it receives 21 points per hand and a time, and returns a list of events. That is what lets the same library drive a browser tool, a musical instrument, or run in tests with no camera at all. Everything else on this page (camera, drawing, panels, storage) is the bench, the first program using the library.</p>
+          <p>Gestures are <b>geometry, not machine learning</b>. MediaPipe does the hard part of finding the hand; gesturecore only measures angles and distances and applies thresholds and timers. Every decision is therefore explainable: the hand panels show the exact numbers each rule looks at.</p>
+          <h3>Two ideas used everywhere</h3>
+          <ul>
+            <li><b>Hysteresis</b>: an on/off decision uses two thresholds, one to switch on and a looser one to switch off. A value hovering near a single line would otherwise flicker on-off-on every frame.</li>
+            <li><b>Dwell</b>: a state must hold continuously for some time (default 300 ms) before its event fires. Any frame that breaks it resets the timer. The filling rings on the video are these timers.</li>
+          </ul>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-hand">3. Hand measurements</h2>
-            <div class="figure">
-              <svg viewBox="0 0 370 420" width="300" role="img" aria-label="The 21 MediaPipe hand landmarks">
-                <g transform="translate(20,0)">
-                  <g stroke="#6f7a8f" stroke-width="3" stroke-linecap="round">
-                    <line x1="174" y1="389" x2="120" y2="346" /><line x1="120" y1="346" x2="80" y2="302" /><line x1="80" y1="302" x2="50" y2="264" /><line x1="50" y1="264" x2="26" y2="236" />
-                    <line x1="174" y1="389" x2="117" y2="216" /><line x1="117" y1="216" x2="106" y2="133" /><line x1="106" y1="133" x2="99" y2="88" /><line x1="99" y1="88" x2="97" y2="53" />
-                    <line x1="117" y1="216" x2="176" y2="207" /><line x1="176" y1="207" x2="177" y2="117" /><line x1="177" y1="117" x2="178" y2="63" /><line x1="178" y1="63" x2="177" y2="26" />
-                    <line x1="176" y1="207" x2="225" y2="221" /><line x1="225" y1="221" x2="235" y2="137" /><line x1="235" y1="137" x2="242" y2="87" /><line x1="242" y1="87" x2="247" y2="52" />
-                    <line x1="225" y1="221" x2="270" y2="243" /><line x1="270" y1="243" x2="285" y2="181" /><line x1="285" y1="181" x2="297" y2="142" /><line x1="297" y1="142" x2="306" y2="112" />
-                    <line x1="174" y1="389" x2="270" y2="243" />
-                  </g>
-                  <line x1="174" y1="389" x2="176" y2="207" stroke="#4dd6c1" stroke-width="2" stroke-dasharray="6 4" />
-                  <line x1="26" y1="236" x2="97" y2="53" stroke="#ff5fa2" stroke-width="2" stroke-dasharray="6 4" />
-                  <g fill="#d7dbe3">
-                    <circle cx="174" cy="389" r="5" /><circle cx="120" cy="346" r="4" /><circle cx="80" cy="302" r="4" /><circle cx="50" cy="264" r="4" /><circle cx="26" cy="236" r="5" />
-                    <circle cx="117" cy="216" r="4" /><circle cx="106" cy="133" r="4" /><circle cx="99" cy="88" r="4" /><circle cx="97" cy="53" r="5" />
-                    <circle cx="176" cy="207" r="4" /><circle cx="177" cy="117" r="4" /><circle cx="178" cy="63" r="4" /><circle cx="177" cy="26" r="5" />
-                    <circle cx="225" cy="221" r="4" /><circle cx="235" cy="137" r="4" /><circle cx="242" cy="87" r="4" /><circle cx="247" cy="52" r="5" />
-                    <circle cx="270" cy="243" r="4" /><circle cx="285" cy="181" r="4" /><circle cx="297" cy="142" r="4" /><circle cx="306" cy="112" r="5" />
-                  </g>
-                  <g fill="#8a92a3" font-size="11" font-family="ui-monospace, Consolas, monospace">
-                    <text x="184" y="404">0 wrist</text><text x="104" y="362">1</text><text x="64" y="318">2</text><text x="34" y="280">3</text><text x="6" y="232">4</text>
-                    <text x="125" y="224">5</text><text x="114" y="137">6</text><text x="107" y="92">7</text><text x="86" y="44">8</text>
-                    <text x="184" y="214">9</text><text x="185" y="121">10</text><text x="186" y="67">11</text><text x="170" y="16">12</text>
-                    <text x="233" y="229">13</text><text x="243" y="141">14</text><text x="250" y="91">15</text><text x="240" y="42">16</text>
-                    <text x="278" y="251">17</text><text x="293" y="185">18</text><text x="305" y="146">19</text><text x="300" y="102">20</text>
-                  </g>
-                  <text x="182" y="305" fill="#4dd6c1" font-size="12">span</text>
-                  <text x="22" y="140" fill="#ff5fa2" font-size="12">thumb↔index</text>
+          <h2 id="doc-colour">3. Colour key</h2>
+          <p>Colour carries meaning here; it is never decoration. The same six colours mean the same thing on the video, in the bars, in the log and in these docs. Anything structural (frames, tabs, labels) stays neutral steel.</p>
+          <div class="tablewrap"><table class="keytable">
+            <tr><th>Colour</th><th>Meaning</th><th>Where you see it</th></tr>
+            <tr><td><i class="sw data"></i>cyan</td><td>a live measurement</td><td>feature bars, smoothed skeleton, fps and timing readouts</td></tr>
+            <tr><td><i class="sw pending"></i>amber</td><td>charging: a condition is met and a timer is running, nothing has fired yet</td><td>filling rings, dwell bars, the held pose, movement progress, a finger that is closed but not yet a pinch</td></tr>
+            <tr><td><i class="sw active"></i>green</td><td>active or fired: the gesture is real</td><td>engaged hand, pinching finger, fired pose and movement events, PASS</td></tr>
+            <tr><td><i class="sw fault"></i>red</td><td>lost, failed, unintended</td><td><code>lost</code> events, errors, the false-activation count, FAIL</td></tr>
+            <tr><td><i class="sw limit"></i>white</td><td>a limit or value you set</td><td>threshold ticks on bars, slider handles, ◆ next to changed settings</td></tr>
+            <tr><td><i class="sw raw"></i>grey</td><td>raw input, disabled, off</td><td>unsmoothed skeleton, disabled fingers, absent hands, <code>pinch:move</code> spam</td></tr>
+          </table></div>
+          <p>Left and right hands are told apart by their labels, never by colour, so colour can stay meaningful.</p>
+
+          <h2 id="doc-hand">4. Hand measurements</h2>
+          <div class="figure">
+            <svg viewBox="0 0 370 420" width="290" role="img" aria-label="The 21 MediaPipe hand landmarks">
+              <g transform="translate(20,0)">
+                <g stroke="#55747e" stroke-width="3" stroke-linecap="round">
+                  <line x1="174" y1="389" x2="120" y2="346" /><line x1="120" y1="346" x2="80" y2="302" /><line x1="80" y1="302" x2="50" y2="264" /><line x1="50" y1="264" x2="26" y2="236" />
+                  <line x1="174" y1="389" x2="117" y2="216" /><line x1="117" y1="216" x2="106" y2="133" /><line x1="106" y1="133" x2="99" y2="88" /><line x1="99" y1="88" x2="97" y2="53" />
+                  <line x1="117" y1="216" x2="176" y2="207" /><line x1="176" y1="207" x2="177" y2="117" /><line x1="177" y1="117" x2="178" y2="63" /><line x1="178" y1="63" x2="177" y2="26" />
+                  <line x1="176" y1="207" x2="225" y2="221" /><line x1="225" y1="221" x2="235" y2="137" /><line x1="235" y1="137" x2="242" y2="87" /><line x1="242" y1="87" x2="247" y2="52" />
+                  <line x1="225" y1="221" x2="270" y2="243" /><line x1="270" y1="243" x2="285" y2="181" /><line x1="285" y1="181" x2="297" y2="142" /><line x1="297" y1="142" x2="306" y2="112" />
+                  <line x1="174" y1="389" x2="270" y2="243" />
                 </g>
-              </svg>
-              <div>
-                <p>MediaPipe gives 21 points per hand. Tips are <code>4 8 12 16 20</code> (thumb → pinky), knuckles (MCP) <code>1 5 9 13 17</code>, middle joints (PIP) <code>2 6 10 14 18</code>.</p>
-                <p><b>Span</b> (teal) is the wrist-to-middle-knuckle length. <b>Every distance is divided by the span</b>, so a pinch or a swipe measures the same whether your hand is near the camera or far away. Distances in the docs are therefore in <i>hand-size units</i>: 1.0 = one span.</p>
-              </div>
+                <line x1="174" y1="389" x2="176" y2="207" stroke="#4fd1e0" stroke-width="2" stroke-dasharray="6 4" />
+                <line x1="26" y1="236" x2="97" y2="53" stroke="#4fd1e0" stroke-width="2" stroke-dasharray="2 4" />
+                <g fill="#cfe3e8">
+                  <circle cx="174" cy="389" r="5" /><circle cx="120" cy="346" r="4" /><circle cx="80" cy="302" r="4" /><circle cx="50" cy="264" r="4" /><circle cx="26" cy="236" r="5" />
+                  <circle cx="117" cy="216" r="4" /><circle cx="106" cy="133" r="4" /><circle cx="99" cy="88" r="4" /><circle cx="97" cy="53" r="5" />
+                  <circle cx="176" cy="207" r="4" /><circle cx="177" cy="117" r="4" /><circle cx="178" cy="63" r="4" /><circle cx="177" cy="26" r="5" />
+                  <circle cx="225" cy="221" r="4" /><circle cx="235" cy="137" r="4" /><circle cx="242" cy="87" r="4" /><circle cx="247" cy="52" r="5" />
+                  <circle cx="270" cy="243" r="4" /><circle cx="285" cy="181" r="4" /><circle cx="297" cy="142" r="4" /><circle cx="306" cy="112" r="5" />
+                </g>
+                <g fill="#7b9aa4" font-size="11" font-family="Consolas, monospace">
+                  <text x="184" y="404">0 wrist</text><text x="104" y="362">1</text><text x="64" y="318">2</text><text x="34" y="280">3</text><text x="6" y="232">4</text>
+                  <text x="125" y="224">5</text><text x="114" y="137">6</text><text x="107" y="92">7</text><text x="86" y="44">8</text>
+                  <text x="184" y="214">9</text><text x="185" y="121">10</text><text x="186" y="67">11</text><text x="170" y="16">12</text>
+                  <text x="233" y="229">13</text><text x="243" y="141">14</text><text x="250" y="91">15</text><text x="240" y="42">16</text>
+                  <text x="278" y="251">17</text><text x="293" y="185">18</text><text x="305" y="146">19</text><text x="300" y="102">20</text>
+                </g>
+                <text x="182" y="305" fill="#4fd1e0" font-size="11">span</text>
+                <text x="22" y="140" fill="#4fd1e0" font-size="11">thumb↔index</text>
+              </g>
+            </svg>
+            <div>
+              <p>MediaPipe gives 21 points per hand. Tips are <code>4 8 12 16 20</code> (thumb → pinky), knuckles (MCP) <code>1 5 9 13 17</code>, middle joints (PIP) <code>2 6 10 14 18</code>.</p>
+              <p><b>Span</b> is the wrist-to-middle-knuckle length. <b>Every distance is divided by the span</b>, so a pinch or a swipe measures the same whether your hand is near the camera or far away. Distances in these docs are therefore in <i>hand-size units</i>: 1.0 = one span.</p>
             </div>
-            <div class="tablewrap"><table>
-              <tr><th>Feature</th><th>Range</th><th>What it is</th></tr>
-              <tr><td><code>curl</code> (×5)</td><td>0 … 1</td><td>How bent each finger is: the angle at its middle joint, 0 = straight, 1 = fully bent. The thumb uses joint 3 and is noisier. The mapping from angle to 0…1 is set by the <i>finger straight / bent</i> sliders.</td></tr>
-              <tr><td><code>openness</code></td><td>0 … 1</td><td>1 − the average curl of index…pinky. 0 = fist, 1 = all fingers straight.</td></tr>
-              <tr><td><code>pinchRaws</code></td><td>0 … ~1.5</td><td>Thumb-tip to each fingertip distance, in spans (pink dashed line). About 0.1 when touching.</td></tr>
-              <tr><td><code>pinch</code></td><td>0 … 1</td><td>Thumb↔index distance rescaled between the <i>closed</i> and <i>open</i> sliders: 0 = touching, 1 = wide open.</td></tr>
-              <tr><td><code>tilt</code></td><td>−180° … 180°</td><td>Palm rotation on screen: direction from wrist to middle knuckle. 0 = fingers up, positive = leaning right.</td></tr>
-              <tr><td><code>span</code></td><td>~0.1 … 0.5</td><td>Hand size on screen. Bigger = closer to the camera.</td></tr>
-              <tr><td><code>centroid</code></td><td>0 … 1</td><td>Palm centre (wrist + four knuckles) as a fraction of the frame. Used for scrolling and movements.</td></tr>
-            </table></div>
-            <p>The depth value <code>z</code> from MediaPipe is noisy, so it is only used inside joint angles, never as a distance. Features are computed <b>after</b> smoothing.</p>
+          </div>
+          <div class="tablewrap"><table>
+            <tr><th>Feature</th><th>Range</th><th>What it is</th></tr>
+            <tr><td><code>curl</code> (×5)</td><td>0 … 1</td><td>How bent each finger is: the angle at its middle joint, 0 = straight, 1 = fully bent. The thumb uses joint 3 and is noisier. The angle→0…1 mapping is set by the <i>finger straight / bent</i> sliders.</td></tr>
+            <tr><td><code>openness</code></td><td>0 … 1</td><td>1 − the average curl of index…pinky. 0 = fist, 1 = all fingers straight.</td></tr>
+            <tr><td><code>pinchRaws</code></td><td>0 … ~1.5</td><td>Thumb-tip to each fingertip distance, in spans. About 0.1 when touching.</td></tr>
+            <tr><td><code>pinch</code></td><td>0 … 1</td><td>Thumb↔index distance rescaled between the <i>closed</i> and <i>open</i> sliders: 0 = touching, 1 = wide open.</td></tr>
+            <tr><td><code>tilt</code></td><td>−180° … 180°</td><td>Palm rotation on screen: the direction from wrist to middle knuckle. 0 = fingers up, positive = leaning right.</td></tr>
+            <tr><td><code>span</code></td><td>~0.1 … 0.5</td><td>Hand size on screen. Bigger = closer to the camera.</td></tr>
+            <tr><td><code>centroid</code></td><td>0 … 1</td><td>Palm centre (wrist + four knuckles) as a fraction of the frame. Used by movements.</td></tr>
+          </table></div>
+          <p>MediaPipe's depth value <code>z</code> is noisy, so it is used only inside joint angles, never as a distance. Features are computed <b>after</b> smoothing.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-engage">4. Engagement</h2>
-            <p>Engagement is a <b>safety catch</b>. A hand in view is not trusted to <i>do</i> anything until it shows the <b>engage pose</b> (default: <i>open palm</i>, held for 500 ms). Until then:</p>
-            <ul>
-              <li><b>pinch</b> and <b>movement</b> events never fire;</li>
-              <li><b>pose</b> events still fire (they only describe the hand shape).</li>
-            </ul>
-            <p>Once engaged, the hand stays engaged whatever it does, until it leaves the camera view (see <a href="#doc-loss">Losing a hand</a>). This is what stops typing, scratching your face or reaching for a mug from scrolling a page.</p>
-            <p>On screen: the <span class="sw" style="background:var(--engage)"></span><b>teal outer ring</b> fills while you hold the engage pose; the hand's badge reads <b>engaged</b> when done. Change the pose or turn the catch off in <b>Tuning → Timing → engage pose</b> ("none: always engaged").</p>
+          <h2 id="doc-engage">5. Engagement</h2>
+          <p>Engagement is a <b>safety catch</b>. A hand in view is not trusted to <i>do</i> anything until it shows the <b>engage pose</b> (default: open palm, held 500 ms). Until then:</p>
+          <ul>
+            <li><b>pinch</b> and <b>movement</b> events never fire;</li>
+            <li><b>pose</b> events still fire, since they only describe the hand's shape.</li>
+          </ul>
+          <p>Once engaged, the hand stays engaged whatever it does, until it leaves the camera view (see <a href="#doc-loss">Losing a hand</a>). This is what stops typing, scratching your face or reaching for a mug from firing gestures.</p>
+          <p>On screen the outer ring fills amber while you hold the engage pose and turns green when engaged; the skeleton turns green too. Change the pose, or switch the catch off, in <b>Tuning → engage pose</b>.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-pinch">5. Pinch</h2>
-            <p>For each enabled finger the library measures the thumb-tip distance (in spans). With the default sliders:</p>
-            <div class="tablewrap"><table>
-              <tr><th>Step</th><th>Rule</th></tr>
-              <tr><td>close</td><td>the nearest enabled finger comes <b>below 0.20</b> (<i>closed</i> + <i>hysteresis</i>). The pink ring appears.</td></tr>
-              <tr><td>settle</td><td>while the ring fills, the thumb may slide to a neighbouring finger; the nearest one is the candidate and the timer keeps running.</td></tr>
-              <tr><td>start</td><td>the thumb has stayed closed for <b>300 ms</b> (<i>dwellMs</i>) <b>and</b> the hand is engaged → <code>pinch:start</code> with <code>finger</code>. That finger is now locked.</td></tr>
-              <tr><td>move</td><td>every following frame → <code>pinch:move</code> with the same finger and a 0…1 <code>value</code>.</td></tr>
-              <tr><td>end</td><td>that finger's distance goes <b>above 0.30</b> (<i>closed</i> + 3×<i>hysteresis</i>), the hand is lost, or the finger is unticked → <code>pinch:end</code>.</td></tr>
-            </table></div>
-            <div class="figure">
-              <svg viewBox="0 0 560 190" width="560" role="img" aria-label="Pinch distance over time with close and release lines">
-                <text x="10" y="16" fill="#8a92a3" font-size="11">thumb ↔ finger distance</text>
-                <line x1="40" y1="24" x2="40" y2="150" stroke="#2a2f3a" />
-                <line x1="40" y1="150" x2="550" y2="150" stroke="#2a2f3a" />
-                <text x="520" y="166" fill="#8a92a3" font-size="11">time →</text>
-                <rect x="118" y="30" width="302" height="120" fill="#ff5fa2" opacity="0.07" />
-                <line x1="40" y1="62" x2="550" y2="62" stroke="#ff5fa2" stroke-dasharray="6 4" />
-                <text x="450" y="76" fill="#ff5fa2" font-size="11">release line 0.30</text>
-                <line x1="40" y1="92" x2="550" y2="92" stroke="#d7dbe3" stroke-dasharray="6 4" opacity="0.8" />
-                <text x="450" y="106" fill="#d7dbe3" font-size="11">close line 0.20</text>
-                <path d="M40,32 C90,32 100,110 125,118 S160,78 190,100 S235,70 265,96 S315,74 345,104 S392,80 402,92 C412,100 422,36 470,32 L550,32" fill="none" stroke="#5cc8ff" stroke-width="2.5" />
-                <line x1="118" y1="24" x2="118" y2="150" stroke="#8a92a3" stroke-dasharray="2 3" />
-                <text x="100" y="180" fill="#8a92a3" font-size="11">closes</text>
-                <line x1="208" y1="24" x2="208" y2="150" stroke="#ff5fa2" />
-                <text x="172" y="180" fill="#ff5fa2" font-size="11">start (+300 ms)</text>
-                <line x1="420" y1="24" x2="420" y2="150" stroke="#ff5fa2" />
-                <text x="412" y="180" fill="#ff5fa2" font-size="11">end</text>
-                <text x="238" y="140" fill="#8a92a3" font-size="11">wobbling between the lines changes nothing</text>
-              </svg>
-            </div>
-            <p>If the thumb opens again <i>before</i> the 300 ms are up, nothing fires and the timer resets. Enable or disable fingers in <b>Tuning → Pinch → pinch fingers</b>.</p>
+          <h2 id="doc-pinch">6. Pinch</h2>
+          <p>For each enabled finger the library measures the thumb-tip distance in spans. With the default settings:</p>
+          <div class="tablewrap"><table>
+            <tr><th>Step</th><th>Rule</th></tr>
+            <tr><td>close</td><td>the nearest enabled finger comes <b>below 0.20</b> (<i>closed</i> + <i>hysteresis</i>). Its bar turns amber and the ring appears.</td></tr>
+            <tr><td>settle</td><td>while the ring fills, the thumb may slide to a neighbouring finger; the nearest one is the candidate and the timer keeps running.</td></tr>
+            <tr><td>start</td><td>closed for <b>300 ms</b> (<i>dwellMs</i>) <b>and</b> the hand is engaged → <code>pinch:start</code> with <code>finger</code>. That finger is now locked and turns green.</td></tr>
+            <tr><td>move</td><td>every following frame → <code>pinch:move</code> with the same finger and a 0…1 <code>value</code>.</td></tr>
+            <tr><td>end</td><td>that finger's distance goes <b>above 0.30</b> (<i>closed</i> + 3×<i>hysteresis</i>), the hand is lost, or the finger is disabled → <code>pinch:end</code>.</td></tr>
+          </table></div>
+          <div class="figure">
+            <svg viewBox="0 0 560 190" width="540" role="img" aria-label="Pinch distance over time with close and release lines">
+              <text x="10" y="16" fill="#7b9aa4" font-size="11">thumb ↔ finger distance</text>
+              <line x1="40" y1="24" x2="40" y2="150" stroke="#23444e" />
+              <line x1="40" y1="150" x2="550" y2="150" stroke="#23444e" />
+              <text x="516" y="166" fill="#7b9aa4" font-size="11">time →</text>
+              <rect x="118" y="30" width="90" height="120" fill="#ffb13e" opacity="0.12" />
+              <rect x="208" y="30" width="212" height="120" fill="#35e08a" opacity="0.12" />
+              <line x1="40" y1="62" x2="550" y2="62" stroke="#eef7f9" stroke-dasharray="2 4" opacity="0.7" />
+              <text x="446" y="76" fill="#eef7f9" font-size="11" opacity="0.8">release line 0.30</text>
+              <line x1="40" y1="92" x2="550" y2="92" stroke="#eef7f9" stroke-dasharray="6 4" opacity="0.7" />
+              <text x="446" y="106" fill="#eef7f9" font-size="11" opacity="0.8">close line 0.20</text>
+              <path d="M40,32 C90,32 100,110 125,118 S160,78 190,100 S235,70 265,96 S315,74 345,104 S392,80 402,92 C412,100 422,36 470,32 L550,32" fill="none" stroke="#4fd1e0" stroke-width="2.5" />
+              <line x1="118" y1="24" x2="118" y2="150" stroke="#ffb13e" />
+              <text x="96" y="180" fill="#ffb13e" font-size="11">closes</text>
+              <line x1="208" y1="24" x2="208" y2="150" stroke="#35e08a" />
+              <text x="176" y="180" fill="#35e08a" font-size="11">start (+300 ms)</text>
+              <line x1="420" y1="24" x2="420" y2="150" stroke="#cfe3e8" />
+              <text x="410" y="180" fill="#cfe3e8" font-size="11">end</text>
+              <text x="234" y="142" fill="#7b9aa4" font-size="11">wobbling between the lines changes nothing</text>
+            </svg>
+          </div>
+          <p>If the thumb opens again <i>before</i> the 300 ms are up, nothing fires and the timer resets. Enable or disable fingers in <b>Tuning → pinch fingers</b>.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-poses">6. Poses (hand shapes)</h2>
-            <p>A pose is a list of allowed curl ranges per finger. Fingers not listed are ignored.</p>
-            <pre><code>{ "name": "fist", "fingers": {
+          <h2 id="doc-poses">7. Poses (hand shapes)</h2>
+          <p>A pose is a list of allowed curl ranges per finger. Fingers not listed are ignored.</p>
+          <pre><code>{ "name": "fist", "fingers": {
     "index":  { "curl": [0.75, 1] }, "middle": { "curl": [0.75, 1] },
     "ring":   { "curl": [0.75, 1] }, "pinky":  { "curl": [0.75, 1] } } }</code></pre>
-            <ul>
-              <li><b>Score</b>: each listed finger scores 1 if its curl is inside the range, fading to 0 when it is <i>pose falloff</i> (0.15) outside. The pose score is the average. See the <b>≈ scores</b> rows in the readout.</li>
-              <li><b>Held pose</b>: the highest-scoring pose that reaches its <code>minScore</code> (default 0.8). Its name is on the hand's badge and highlighted in amber in the readout.</li>
-              <li><b>Event</b>: when the held pose stays the same for <i>dwellMs</i> (300 ms), a single <code>pose</code> event fires. It fires again only after the pose changes. The <span class="sw" style="background:var(--pose)"></span><b>amber ring</b> is this timer.</li>
-            </ul>
-            <p>Built in: <code>fist</code>, <code>openPalm</code>, <code>point</code>. Make your own in the <b>Gestures</b> tab: <b>Record a pose</b> reads your real finger curls over 15 frames and saves ranges of curl ± tolerance. A larger tolerance is more forgiving but may overlap other poses; include the thumb only when it matters (e.g. thumbs-up).</p>
+          <ul>
+            <li><b>Score</b>: each listed finger scores 1 if its curl is inside the range, fading to 0 when it is <i>pose falloff</i> (0.15) outside. The pose score is the average, shown in the <b>≈ rows</b> of the hand panel.</li>
+            <li><b>Held pose</b>: the highest-scoring pose that reaches its <code>minScore</code> (default 0.8). Its name goes amber.</li>
+            <li><b>Event</b>: when the held pose stays the same for <i>dwellMs</i> (300 ms), one <code>pose</code> event fires and the name turns green. It fires again only after the pose changes.</li>
+          </ul>
+          <p>Built in: <code>fist</code>, <code>openPalm</code>, <code>point</code>. Make your own in <b>Gestures → Record a pose</b>, which reads your real finger curls over 15 frames and saves ranges of curl ± tolerance. A larger tolerance is more forgiving but may overlap other poses; include the thumb only when it matters, such as a thumbs-up.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-motions">7. Movements</h2>
-            <p>A movement describes how the palm centre travels. It fires once when satisfied, and only while <b>engaged</b> and <b>not pinching</b> (so a pinch-drag scroll never counts as a swipe, even right after you let go).</p>
-            <div class="tablewrap"><table>
-              <tr><th>Field</th><th>Meaning</th></tr>
-              <tr><td><code>axis</code></td><td><code>x</code> sideways · <code>y</code> up/down · <code>depth</code> toward/away from the camera (hand gets bigger/smaller) · <code>tilt</code> twisting the palm</td></tr>
-              <tr><td><code>direction</code></td><td><code>1</code> = right / down / toward camera / clockwise on screen; <code>-1</code> = the opposite. Left/right are as you see them with <b>mirror view</b> on.</td></tr>
-              <tr><td><code>distance</code></td><td>how far one stroke must go: spans for x and y; relative size for depth (0.25 = 25 % bigger); radians for tilt (0.5 ≈ 29°)</td></tr>
-              <tr><td><code>withinMs</code></td><td>the whole movement must fit in this time, so slow drifting does not count</td></tr>
-              <tr><td><code>reversals</code></td><td>0 = one stroke (swipe, push, twist). 3 = four strokes back and forth (a wave); direction is then ignored</td></tr>
-              <tr><td><code>pose</code></td><td>optional: only movement made while holding this pose counts</td></tr>
-              <tr><td><code>cooldownMs</code></td><td>optional: minimum time before the same movement can fire again (default 500)</td></tr>
-            </table></div>
-            <pre><code>{ "name": "swipeUp", "axis": "y", "direction": -1, "distance": 1.5, "withinMs": 400 }
+          <h2 id="doc-motions">8. Movements</h2>
+          <p>A movement describes how the palm centre travels. It fires once when satisfied, and only while <b>engaged</b> and <b>not pinching</b>, so a pinch-drag never doubles as a swipe.</p>
+          <div class="tablewrap"><table>
+            <tr><th>Field</th><th>Meaning</th></tr>
+            <tr><td><code>axis</code></td><td><code>x</code> sideways · <code>y</code> up/down · <code>depth</code> toward/away from the camera (the hand gets bigger or smaller) · <code>tilt</code> twisting the palm</td></tr>
+            <tr><td><code>direction</code></td><td><code>1</code> = right / down / toward camera / clockwise on screen; <code>-1</code> = the opposite. Left and right are as you see them with <b>mirror</b> on.</td></tr>
+            <tr><td><code>distance</code></td><td>how far one stroke must go: spans for x and y; relative size for depth (0.25 = 25 % bigger); radians for tilt (0.5 ≈ 29°)</td></tr>
+            <tr><td><code>withinMs</code></td><td>the whole movement must fit in this time, so slow drifting never counts</td></tr>
+            <tr><td><code>reversals</code></td><td>0 = one stroke (swipe, push, twist). 3 = four strokes back and forth (a wave); direction is then ignored</td></tr>
+            <tr><td><code>pose</code></td><td>optional: only movement made while holding this pose counts</td></tr>
+            <tr><td><code>cooldownMs</code></td><td>optional: minimum time before the same movement can fire again (default 500)</td></tr>
+          </table></div>
+          <pre><code>{ "name": "swipeUp", "axis": "y", "direction": -1, "distance": 1.5, "withinMs": 400 }
 { "name": "wave", "axis": "x", "reversals": 3, "distance": 0.5, "withinMs": 1500, "pose": "openPalm" }
 { "name": "push", "axis": "depth", "direction": 1, "distance": 0.3, "withinMs": 500 }</code></pre>
-            <p>Built in: <code>swipeLeft</code>, <code>swipeRight</code> (1.5 hand-lengths within 400 ms) and <code>wave</code>. The <b>↝ rows</b> in the readout show each movement's progress from 0 to 1; watch them while you move to see how close you are, then adjust distance or time. Build new ones with the <b>Build a movement</b> form.</p>
+          <p>Built in: <code>swipeLeft</code>, <code>swipeRight</code> (1.5 hand-lengths within 400 ms) and <code>wave</code>. The <b>↝ rows</b> in the hand panel show each movement's progress from 0 to 1 in amber; watch them while you move to see how close you are, then adjust distance or time.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-loss">8. Losing a hand</h2>
-            <p>If a hand disappears for <b>more than 150 ms</b> (<i>lostAfterMs</i>), the library closes everything in order: <code>pinch:end</code> (if pinching), <code>disengage</code> (if engaged), then <code>lost</code>, and forgets that hand. A shorter gap (a finger passing in front, a blurry frame) changes nothing, so a drag survives brief occlusion. Raise the value if tracking drops out a lot; lower it if a hand that left the frame feels "sticky".</p>
+          <h2 id="doc-loss">9. Losing a hand</h2>
+          <p>If a hand disappears for <b>more than 150 ms</b> (<i>lostAfterMs</i>), the library closes everything in order: <code>pinch:end</code> if pinching, <code>disengage</code> if engaged, then <code>lost</code>, and forgets that hand. A shorter gap — a finger passing in front, a blurry frame — changes nothing, so a drag survives brief occlusion. Raise the value if tracking drops out often; lower it if a hand that has left the frame feels sticky.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-screen">9. The screen</h2>
-            <h3>Header</h3>
-            <div class="tablewrap"><table>
-              <tr><td><b>camera</b></td><td>resolution in use, or "off"</td></tr>
-              <tr><td><b>delegate</b></td><td>where MediaPipe runs: GPU (faster) or CPU. "CPU (GPU failed)" means the GPU could not be used.</td></tr>
-              <tr><td><b>fps</b></td><td>camera frames analysed per second. On this laptop expect roughly 20–30.</td></tr>
-              <tr><td><b>detect</b></td><td>time MediaPipe spends per frame</td></tr>
-              <tr><td><b>core</b></td><td>time gesturecore spends per frame (should be well under 1 ms)</td></tr>
-              <tr><td><b>mirror view</b></td><td>flip the image like a mirror, so moving your hand right moves it right on screen. It also flips the x coordinates the library receives, which affects tilt sign and swipe left/right.</td></tr>
-              <tr><td><b>swap L/R</b></td><td>only swaps the Left/Right label. Independent of mirror view. Changing either resets tracking.</td></tr>
-              <tr><td><b>? Docs</b></td><td>this page</td></tr>
-            </table></div>
-            <h3>Video (stage)</h3>
-            <ul>
-              <li><b>Grey thin skeleton</b>: the raw points from MediaPipe. <b>Coloured thick skeleton</b>: the same points after smoothing (<span class="sw" style="background:var(--left)"></span>Left, <span class="sw" style="background:var(--right)"></span>Right). The gap between them is the smoothing lag; the grey one's jitter is what smoothing removes.</li>
-              <li><span class="sw" style="background:var(--engage)"></span><b>Teal outer ring</b>: engage timer. Full and thick = engaged. Hidden if engagement is off.</li>
-              <li><span class="sw" style="background:var(--pose)"></span><b>Amber ring</b>: pose timer. Full = the pose event fired.</li>
-              <li><span class="sw" style="background:var(--pinch)"></span><b>Small pink ring</b> between thumb and finger: pinch timer. Full and thick = pinching.</li>
-              <li>The label under the hand: hand · pose · engaged · PINCH finger.</li>
-            </ul>
-            <h3>Events log</h3>
-            <p>Newest first: time in seconds, hand, event. Consecutive <code>pinch:move</code> events are folded into the <code>pinch:start</code> line as "moves ×N"; tick <b>each pinch:move</b> to list them one by one. <b>Clear</b> empties it.</p>
-            <h3>Readout (middle column)</h3>
-            <p>One card per hand, greyed out when that hand is not visible. Badges: <b>engaged</b>, <b>pinch</b> (+ finger), and the held pose (lit once its event fired).</p>
-            <div class="tablewrap"><table>
-              <tr><td><b>pinch</b></td><td>thumb↔index openness, 0 touching … 1 open</td></tr>
-              <tr><td><b>thumb→i m r p</b></td><td>four bars: thumb distance to index, middle, ring, pinky. White tick = close line, pink tick = release line. The bar of the finger being pinched turns pink; greyed bars are disabled fingers. The number is the nearest finger.</td></tr>
-              <tr><td><b>openness, curl ×5</b></td><td>see <a href="#doc-hand">Hand measurements</a></td></tr>
-              <tr><td><b>tilt</b></td><td>bar grows from the centre: right = leaning right</td></tr>
-              <tr><td><b>span, centroid</b></td><td>hand size; palm position (x,y)</td></tr>
-              <tr><td><b>engage / pinch / pose dwell</b></td><td>the three timers as bars (same as the rings)</td></tr>
-              <tr><td><b>≈ name</b></td><td>score of every pose; the held one is amber</td></tr>
-              <tr><td><b>↝ name</b></td><td>progress of every movement, 1 = fires</td></tr>
-            </table></div>
+          <h2 id="doc-workspace">10. The workspace</h2>
+          <p>Every panel is a dockable window (built with <a href="https://github.com/dockview/dockview">dockview</a>):</p>
+          <ul>
+            <li><b>Drag a tab</b> onto another panel's edge to split, or onto its tab strip to stack. Drag it out to float it.</li>
+            <li><b>Drag the divider</b> between panels to resize. Double-click a tab to maximize its group.</li>
+            <li><b>Close</b> a panel with the × on its tab; reopen it from the <b>Panels</b> menu in the header, which also has <b>Reset layout</b>.</li>
+            <li>The layout is remembered in this browser.</li>
+          </ul>
+          <h3>Header</h3>
+          <div class="tablewrap"><table>
+            <tr><td><b>cam</b></td><td>resolution in use, or off</td></tr>
+            <tr><td><b>delegate</b></td><td>where MediaPipe runs: GPU (faster) or CPU. "CPU (GPU failed)" means the GPU could not be used.</td></tr>
+            <tr><td><b>fps</b></td><td>camera frames analysed per second</td></tr>
+            <tr><td><b>detect</b></td><td>time MediaPipe spends per frame</td></tr>
+            <tr><td><b>core</b></td><td>time gesturecore spends per frame, normally well under 1 ms</td></tr>
+            <tr><td><b>mirror</b></td><td>flip the image like a mirror, so moving your hand right moves it right on screen</td></tr>
+            <tr><td><b>swap L/R</b></td><td>swap only the Left/Right label. Independent of mirror; either one resets tracking.</td></tr>
+          </table></div>
+          <p>Keys, ignored while typing in a field: <kbd>Space</kbd> pause or resume detection · <kbd>R</kbd> reset tracking · <kbd>F</kbd> mark a false activation during a reliability session.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-tabs">10. The tabs</h2>
-            <h3>Tuning</h3>
-            <p>A control for every library setting. Drag a slider or type a number; it applies on the next frame. A <span style="color:var(--accent)">•</span> after a label means it differs from the default. <b>Reset all to defaults</b>, <b>Copy config JSON</b> (to keep or share a tuning), <b>Import JSON…</b> (paste one back).</p>
-            <div class="tablewrap"><table>
-              <tr><th>Setting</th><th>Default</th><th>Effect</th></tr>
-              <tr><td>minCutoff</td><td>1.0 Hz</td><td>smoothing when the hand is still. Lower = steadier but laggier.</td></tr>
-              <tr><td>beta</td><td>0.007</td><td>how much smoothing relaxes during fast movement. Higher = less lag on quick motions. <i>The default is very low; 5–20 is worth trying.</i></td></tr>
-              <tr><td>dCutoff</td><td>1.0 Hz</td><td>smoothing of the speed estimate used by beta. Rarely needs changing.</td></tr>
-              <tr><td>pinch fingers</td><td>all</td><td>which fingers can pinch</td></tr>
-              <tr><td>closed</td><td>0.15</td><td>thumb distance counted as touching. Close line = closed + h, release line = closed + 3h.</td></tr>
-              <tr><td>open</td><td>0.75</td><td>distance counted as fully open (only affects the 0…1 pinch value)</td></tr>
-              <tr><td>hysteresis h</td><td>0.05</td><td>gap between close and release lines. Bigger = less flicker, but harder to release.</td></tr>
-              <tr><td>engage pose</td><td>openPalm</td><td>the pose that engages a hand, or none</td></tr>
-              <tr><td>dwellMs</td><td>300</td><td>hold time for pinch start and pose events</td></tr>
-              <tr><td>engage dwellMs</td><td>500</td><td>hold time for engaging</td></tr>
-              <tr><td>lostAfterMs</td><td>150</td><td>how long a hand may vanish before it is dropped</td></tr>
-              <tr><td>finger / thumb straight, bent</td><td>0.25 / 2.4, 0.2 / 1.4 rad</td><td>joint angles that count as curl 0 and curl 1. If your straight fingers show curl 0.2, raise <i>straight</i>; if a tight fist shows 0.6, lower <i>bent</i>.</td></tr>
-              <tr><td>pose falloff</td><td>0.15</td><td>how fast a finger's score drops outside its range. Bigger = more forgiving poses.</td></tr>
-            </table></div>
-            <h3>Gestures</h3>
-            <p><b>Record a pose from your hand</b>: name it, pick the hand, press Record, make the shape during the countdown and hold still. <b>Build a movement</b>: fill in the form (see <a href="#doc-motions">Movements</a>) and press Add. A pose or movement with an existing name is replaced. Both lists can also be edited as JSON below; <b>Apply</b> checks the JSON and explains what is wrong if anything is.</p>
-            <h3>Scroll test</h3>
-            <p>A demo of the browser-control use case plus the measurement for "fewer than 2 accidental pinches per 10 minutes".</p>
-            <ul>
-              <li><b>Pinch to scroll</b>: engage, pinch, move your hand up/down like dragging paper. <i>hand</i> and <i>pinch finger</i> choose what may scroll; <i>gain</i> is how far the page moves per hand movement; <i>invert</i> flips direction.</li>
-              <li><b>False-activation session</b>: press <b>Start session</b> and use the computer normally for at least 10 minutes: type, reach, rest, and scroll on purpose sometimes. Every time a pinch starts that you did <i>not</i> intend, press <kbd>F</kbd>. After 10 minutes it shows PASS (&lt; 2 per 10 min) or FAIL. Finished sessions are listed underneath.</li>
-            </ul>
-            <h3>Fixtures</h3>
-            <p>For the automated tests. Choose a name (open, fist, point, pinch or custom) and hand, press <b>Capture</b>, hold the pose. The 21 points are averaged over several frames, previewed with their feature values and pose scores, and <b>Save to test/fixtures</b> writes the file into the project. Then run the tests (<code>run-tests.cmd</code>). The shipped fixtures are synthetic placeholders, so capturing real ones is recommended.</p>
-            <h3>Source</h3>
-            <p>Camera device and resolution (lower resolution can raise fps), GPU/CPU, and MediaPipe's own confidence thresholds: <i>detection</i> (finding a new hand), <i>presence</i> (deciding a tracked hand is still there), <i>tracking</i> (trusting frame-to-frame tracking). Raising them reduces phantom hands but drops real ones more often. Overlay toggles hide the raw skeleton, smoothed skeleton or the image.</p>
+          <h2 id="doc-panels">11. The panels</h2>
+          <h3>Camera</h3>
+          <ul>
+            <li><b>Grey skeleton</b>: the raw points from MediaPipe. <b>Cyan skeleton</b>: the same points after smoothing, turning <b>green</b> once the hand is engaged. The gap between grey and cyan is the smoothing lag; the grey jitter is what smoothing removes.</li>
+            <li><b>Outer ring</b>: engage timer. <b>Inner ring</b>: pose timer. <b>Small ring</b> between thumb and finger: pinch timer. Each fills amber and turns green when it completes.</li>
+            <li>The label under the hand reads: hand · pose · engaged · PINCH finger.</li>
+          </ul>
+          <h3>Events</h3>
+          <p>Newest first: time in seconds, hand, event. Activations are green, releases white, <code>lost</code> red. Consecutive <code>pinch:move</code> events are folded into the <code>pinch:start</code> line as "moves ×N"; tick <b>each pinch:move</b> to list them individually.</p>
+          <h3>Hand · R and Hand · L</h3>
+          <p>One panel per hand, dimmed when that hand is not visible. Badges show engaged, pinch (with finger) and the held pose — amber while held, green once its event has fired.</p>
+          <div class="tablewrap"><table>
+            <tr><td><b>pinch</b></td><td>thumb↔index openness, 0 touching … 1 open</td></tr>
+            <tr><td><b>thumb→i m r p</b></td><td>four bars: thumb distance to index, middle, ring, pinky. Ticks mark the close and release lines. A bar goes amber when it crosses the close line and green while that finger is pinched; disabled fingers are grey. The number is the nearest finger.</td></tr>
+            <tr><td><b>openness, curl ×5</b></td><td>see <a href="#doc-hand">Hand measurements</a></td></tr>
+            <tr><td><b>tilt</b></td><td>grows from the centre: right = leaning right</td></tr>
+            <tr><td><b>span, centroid</b></td><td>hand size; palm position</td></tr>
+            <tr><td><b>engage / pinch / pose dwell</b></td><td>the three timers as bars, amber filling to green</td></tr>
+            <tr><td><b>≈ name</b></td><td>score of every pose; the held one is amber</td></tr>
+            <tr><td><b>↝ name</b></td><td>progress of every movement, 1 = fires</td></tr>
+          </table></div>
+          <h3>Tuning</h3>
+          <p>A control for every library setting; changes apply on the next frame. <b>Reset to defaults</b>, <b>Copy config</b> (to keep or share a tuning) and <b>Import…</b> (paste one back).</p>
+          <div class="tablewrap"><table>
+            <tr><th>Setting</th><th>Default</th><th>Effect</th></tr>
+            <tr><td>minCutoff</td><td>1.0 Hz</td><td>smoothing when the hand is still. Lower = steadier but laggier.</td></tr>
+            <tr><td>beta</td><td>0.007</td><td>how much smoothing relaxes during fast movement. Higher = less lag. <i>The default is very low; 5–20 is worth trying.</i></td></tr>
+            <tr><td>dCutoff</td><td>1.0 Hz</td><td>smoothing of the speed estimate used by beta. Rarely needs changing.</td></tr>
+            <tr><td>pinch fingers</td><td>all</td><td>which fingers can pinch</td></tr>
+            <tr><td>closed</td><td>0.15</td><td>thumb distance counted as touching. Close line = closed + h, release line = closed + 3h.</td></tr>
+            <tr><td>open</td><td>0.75</td><td>distance counted as fully open; only affects the 0…1 pinch value</td></tr>
+            <tr><td>hysteresis h</td><td>0.05</td><td>gap between close and release lines. Bigger = less flicker, harder to release.</td></tr>
+            <tr><td>engage pose</td><td>openPalm</td><td>the pose that engages a hand, or none</td></tr>
+            <tr><td>dwellMs</td><td>300</td><td>hold time for pinch start and pose events</td></tr>
+            <tr><td>engage dwellMs</td><td>500</td><td>hold time for engaging</td></tr>
+            <tr><td>lostAfterMs</td><td>150</td><td>how long a hand may vanish before it is dropped</td></tr>
+            <tr><td>finger / thumb straight, bent</td><td>0.25 / 2.4, 0.2 / 1.4 rad</td><td>joint angles counted as curl 0 and curl 1. If your straight fingers read 0.2, raise <i>straight</i>; if a tight fist reads 0.6, lower <i>bent</i>.</td></tr>
+            <tr><td>pose falloff</td><td>0.15</td><td>how fast a finger's score drops outside its range. Bigger = more forgiving poses.</td></tr>
+          </table></div>
+          <h3>Gestures</h3>
+          <p>Record a pose from your hand, build a movement with the form, or edit either list as JSON. A pose or movement whose name already exists is replaced. <b>Apply</b> checks the JSON and says exactly what is wrong if anything is.</p>
+          <h3>Reliability</h3>
+          <p>The definition-of-done measurement: fewer than 2 unintended activations per 10 minutes. Start a session, work normally for ten minutes, and press <kbd>F</kbd> whenever a pinch or movement fires that you did not mean. Finished sessions are listed underneath. This is a measurement of the core's defaults, not a feature.</p>
+          <h3>Fixtures</h3>
+          <p>For the automated tests. Pick a name and hand, press <b>Capture</b>, hold the pose. The 21 points are averaged over several frames, previewed with their feature values and pose scores, and <b>Save to test/fixtures</b> writes the file into the project. Then run <code>npm test</code>. The fixtures in the repository are synthetic placeholders, so capturing real ones is worthwhile.</p>
+          <h3>Source</h3>
+          <p>Camera device and resolution (lower resolution can raise fps), GPU/CPU, and MediaPipe's own confidence thresholds: <i>detection</i> for finding a new hand, <i>presence</i> for deciding a tracked hand is still there, <i>tracking</i> for trusting frame-to-frame tracking. Raising them reduces phantom hands but drops real ones more often. The overlay toggles hide the raw skeleton, the smoothed skeleton or the image.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-tuning">11. Tuning guide</h2>
-            <div class="tablewrap"><table>
-              <tr><th>Symptom</th><th>Try</th></tr>
-              <tr><td>Skeleton jitters when still</td><td>lower <b>minCutoff</b></td></tr>
-              <tr><td>Skeleton trails behind fast movement</td><td>raise <b>beta</b> (try 5, then 20)</td></tr>
-              <tr><td>Pinch feels slow to start</td><td>raise <b>beta</b>; lower <b>dwellMs</b> (e.g. 200)</td></tr>
-              <tr><td>Pinch doesn't trigger although fingers touch</td><td>watch the thumb→ bars: if they never cross the white tick, raise <b>closed</b></td></tr>
-              <tr><td>Accidental pinches</td><td>lower <b>closed</b>, raise <b>dwellMs</b>, untick fingers you don't use, keep engagement on</td></tr>
-              <tr><td>Pinch drops during a drag</td><td>raise <b>hysteresis</b>; raise <b>lostAfterMs</b> if the hand flickers out</td></tr>
-              <tr><td>Wrong pose, or flickering between poses</td><td>check curl bars; adjust <b>finger straight/bent</b>, narrow the pose ranges, or raise its <code>minScore</code></td></tr>
-              <tr><td>Pose never recognised</td><td>raise <b>pose falloff</b>, widen ranges, or re-record it with more tolerance</td></tr>
-              <tr><td>Swipe doesn't fire</td><td>watch its ↝ bar: lower <code>distance</code> or raise <code>withinMs</code>; make sure you are engaged and not pinching</td></tr>
-              <tr><td>Swipe fires by accident</td><td>raise <code>distance</code>, lower <code>withinMs</code>, or require a <code>pose</code></td></tr>
-              <tr><td>Left/right swipes reversed</td><td>turn <b>mirror view</b> on</td></tr>
-            </table></div>
-            <p>Change one thing at a time and watch the readout numbers. When a tuning feels right, <b>Copy config JSON</b> and keep it: those values become the library defaults.</p>
+          <h2 id="doc-tuning">12. Tuning guide</h2>
+          <div class="tablewrap"><table>
+            <tr><th>Symptom</th><th>Try</th></tr>
+            <tr><td>Skeleton jitters when still</td><td>lower <b>minCutoff</b></td></tr>
+            <tr><td>Skeleton trails behind fast movement</td><td>raise <b>beta</b> (try 5, then 20)</td></tr>
+            <tr><td>Pinch feels slow to start</td><td>raise <b>beta</b>; lower <b>dwellMs</b> to about 200</td></tr>
+            <tr><td>Pinch does not trigger although fingers touch</td><td>watch the thumb→ bars: if they never cross the tick, raise <b>closed</b></td></tr>
+            <tr><td>Accidental pinches</td><td>lower <b>closed</b>, raise <b>dwellMs</b>, disable fingers you do not use, keep engagement on</td></tr>
+            <tr><td>Pinch drops during a drag</td><td>raise <b>hysteresis</b>; raise <b>lostAfterMs</b> if the hand flickers out</td></tr>
+            <tr><td>Wrong pose, or flickering between poses</td><td>check the curl bars; adjust <b>finger straight/bent</b>, narrow the pose ranges, or raise its <code>minScore</code></td></tr>
+            <tr><td>Pose never recognised</td><td>raise <b>pose falloff</b>, widen the ranges, or re-record with more tolerance</td></tr>
+            <tr><td>Swipe does not fire</td><td>watch its ↝ bar: lower <code>distance</code> or raise <code>withinMs</code>; make sure you are engaged and not pinching</td></tr>
+            <tr><td>Swipe fires by accident</td><td>raise <code>distance</code>, lower <code>withinMs</code>, or require a <code>pose</code></td></tr>
+            <tr><td>Left and right swipes reversed</td><td>turn <b>mirror</b> on</td></tr>
+          </table></div>
+          <p>Change one thing at a time and watch the numbers. When a tuning feels right, <b>Copy config</b> and keep it: those values are what should become the library defaults.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-code">12. Using it in code</h2>
-            <pre><code>import { GestureCore } from 'gesturecore';
+          <h2 id="doc-code">13. Using it in code</h2>
+          <pre><code>import { GestureCore } from 'gesturecore';
 
 const core = new GestureCore({ aspect: 640 / 480, engage: { pose: 'openPalm', dwellMs: 500 } });
 
@@ -696,44 +833,40 @@ for (const e of core.update(hands, performance.now())) {
 core.getFeatures('Right');   // latest measurements, or null
 core.getHandState('Right');  // engaged, timers, pose scores, movement progress
 core.setConfig({ dwellMs: 200 });   // live change, same as the sliders</code></pre>
-            <div class="tablewrap"><table>
-              <tr><th>Event</th><th>Extra fields</th></tr>
-              <tr><td><code>engage</code> / <code>disengage</code></td><td>–</td></tr>
-              <tr><td><code>pinch:start</code> / <code>pinch:end</code></td><td><code>finger</code></td></tr>
-              <tr><td><code>pinch:move</code></td><td><code>finger</code>, <code>value</code> 0…1</td></tr>
-              <tr><td><code>pose</code></td><td><code>name</code></td></tr>
-              <tr><td><code>motion</code></td><td><code>name</code></td></tr>
-              <tr><td><code>lost</code></td><td>–</td></tr>
-            </table></div>
-            <p>Every event has <code>type</code>, <code>hand</code> ('Left' | 'Right') and <code>t</code>. Within one frame, hands come Left then Right. Every <code>pinch:start</code> gets exactly one <code>pinch:end</code> and every <code>engage</code> one <code>disengage</code>. The config is plain JSON, exactly what <b>Copy config JSON</b> gives you. More in <code>README.md</code>.</p>
+          <div class="tablewrap"><table>
+            <tr><th>Event</th><th>Extra fields</th></tr>
+            <tr><td><code>engage</code> / <code>disengage</code></td><td>–</td></tr>
+            <tr><td><code>pinch:start</code> / <code>pinch:end</code></td><td><code>finger</code></td></tr>
+            <tr><td><code>pinch:move</code></td><td><code>finger</code>, <code>value</code> 0…1</td></tr>
+            <tr><td><code>pose</code></td><td><code>name</code></td></tr>
+            <tr><td><code>motion</code></td><td><code>name</code></td></tr>
+            <tr><td><code>lost</code></td><td>–</td></tr>
+          </table></div>
+          <p>Every event carries <code>type</code>, <code>hand</code> ('Left' | 'Right') and <code>t</code>. Within one frame, hands come Left then Right. Every <code>pinch:start</code> gets exactly one <code>pinch:end</code>, and every <code>engage</code> one <code>disengage</code>. The config is plain JSON — exactly what <b>Copy config</b> gives you. More in the project README.</p>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-trouble">13. Troubleshooting</h2>
-            <div class="tablewrap"><table>
-              <tr><td><b>"Camera permission was denied"</b></td><td>click the camera icon in Chrome's address bar, allow, then Start camera again</td></tr>
-              <tr><td><b>Black video / camera busy</b></td><td>another app (Teams, Zoom, Camera) may hold the camera; close it. Or pick the right device in Source.</td></tr>
-              <tr><td><b>Low fps</b></td><td>Source → resolution 320×240; close other tabs; check delegate says GPU</td></tr>
-              <tr><td><b>Hand labelled wrong side</b></td><td>tick <b>swap L/R</b></td></tr>
-              <tr><td><b>Nothing engages</b></td><td>Tuning → engage pose: if it says "(missing!)" that pose was deleted; pick another or none</td></tr>
-              <tr><td><b>Hands flicker in and out</b></td><td>better lighting, plain background; lower detection/presence confidence slightly; raise lostAfterMs</td></tr>
-              <tr><td><b>Could not start: model / wasm error</b></td><td>the model file is missing: close the bench window and run <code>run-bench.cmd</code> again (it downloads the model if absent)</td></tr>
-              <tr><td><b>Everything feels off after experimenting</b></td><td>Tuning → Reset all to defaults; Gestures → reset poses / movements; <kbd>R</kbd> resets tracking</td></tr>
-            </table></div>
-            <p>Keys (ignored while typing in a field): <kbd>F</kbd> mark a false activation (during a session) · <kbd>R</kbd> reset tracking · <kbd>Space</kbd> pause/resume detection.</p>
+          <h2 id="doc-trouble">14. Troubleshooting</h2>
+          <div class="tablewrap"><table>
+            <tr><td><b>"Camera permission was denied"</b></td><td>allow the camera from the icon in the address bar, then press Start camera again</td></tr>
+            <tr><td><b>Black video, or camera busy</b></td><td>another app may hold the camera; close it, or pick a different device in Source</td></tr>
+            <tr><td><b>Low fps</b></td><td>Source → resolution 320×240; close other tabs; check that delegate says GPU</td></tr>
+            <tr><td><b>Hand labelled the wrong side</b></td><td>tick <b>swap L/R</b></td></tr>
+            <tr><td><b>Nothing engages</b></td><td>Tuning → engage pose: if it says "(missing!)" that pose was deleted; pick another, or none</td></tr>
+            <tr><td><b>Hands flicker in and out</b></td><td>better lighting, plainer background; lower the detection/presence confidence slightly; raise lostAfterMs</td></tr>
+            <tr><td><b>Could not start: model error</b></td><td>the model file is missing: run <code>npm run fetch-model</code>, then reload</td></tr>
+            <tr><td><b>Everything feels off after experimenting</b></td><td>Tuning → Reset to defaults; Gestures → Reset; <kbd>R</kbd> resets tracking; Panels → Reset layout</td></tr>
+          </table></div>
 
-            <!-- ───────────────────────────────────────────── -->
-            <h2 id="doc-files">14. Files and saving</h2>
-            <ul>
-              <li><b>Saved in this browser</b> (localStorage for <code>localhost:5173</code>): the config (sliders, poses, movements), bench settings (tab, toggles, camera choice), and session history. A different browser starts from defaults. Clearing site data resets everything.</li>
-              <li><b>Written to the project</b>: only fixture captures (<code>test/fixtures/*.json</code>).</li>
-              <li><b>Project layout</b>: <code>src/</code> the library (no browser code allowed), <code>test/</code> automated tests, <code>bench/</code> this page, <code>README.md</code> developer notes.</li>
-              <li><b>Start / test</b>: double-click <code>run-bench.cmd</code> or <code>run-tests.cmd</code> in the Projects folder.</li>
-            </ul>
-            <p><a href="#doc-top">↑ back to top</a></p>
-          </div>
+          <h2 id="doc-files">15. Files and saving</h2>
+          <ul>
+            <li><b>Saved in this browser</b> (localStorage): the config (settings, poses, movements), bench preferences, the panel layout and session history. Another browser starts from defaults; clearing site data resets everything.</li>
+            <li><b>Written to the project</b>: only fixture captures, in <code>test/fixtures/</code>.</li>
+            <li><b>Project layout</b>: <code>src/</code> the library (no browser APIs allowed), <code>test/</code> the automated tests, <code>bench/</code> this page, <code>README.md</code> developer notes.</li>
+            <li><b>Commands</b>: <code>npm run bench</code> starts this page, <code>npm test</code> runs the tests, <code>npm run fetch-model</code> downloads the hand model.</li>
+          </ul>
+          <p><a href="#doc-top">↑ back to top</a></p>
         </div>
-      </section>
-    </main>
+      </div>
+    </div>
     <script type="module" src="./bench.ts"></script>
   </body>
 </html>

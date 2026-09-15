@@ -4,7 +4,9 @@
  * This file is an adapter: it owns the camera, MediaPipe, the DOM, the clock and
  * localStorage. The core only ever sees `update(hands, t)`, `setConfig()` and reads.
  */
-import { FilesetResolver, HandLandmarker, type HandLandmarkerResult } from '@mediapipe/tasks-vision';
+import 'virtual:dockview.css';
+import type { HandLandmarker, HandLandmarkerResult } from '@mediapipe/tasks-vision';
+import { createDockview, type DockviewApi, type DockviewTheme, type IContentRenderer, type SerializedDockview } from 'dockview-core';
 import {
   DEFAULT_MOTIONS,
   DEFAULT_POSES,
@@ -47,8 +49,8 @@ const fmt = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '–');
 
 const LS = {
   config: 'gesturecore.bench.config.v1',
-  settingsV1: 'gesturecore.bench.settings.v1',
-  settings: 'gesturecore.bench.settings.v2',
+  settings: 'gesturecore.bench.settings.v3',
+  layout: 'gesturecore.bench.layout.v1',
   sessions: 'gesturecore.bench.sessions.v1',
 };
 
@@ -70,7 +72,6 @@ function save(key: string, value: unknown): void {
 }
 
 type BenchSettings = {
-  tab: string;
   mirror: boolean;
   flipHandedness: boolean;
   deviceId: string;
@@ -83,14 +84,9 @@ type BenchSettings = {
   showSmoothed: boolean;
   showVideo: boolean;
   showMoves: boolean;
-  scrollHand: 'any' | HandLabel;
-  scrollFinger: 'any' | PinchFinger;
-  scrollGain: number;
-  scrollInvert: boolean;
 };
 
 const DEFAULT_SETTINGS: BenchSettings = {
-  tab: 'tuning',
   mirror: true,
   // Verified on the target laptop: MediaPipe's label is already anatomical for the unmirrored frame.
   flipHandedness: false,
@@ -104,21 +100,14 @@ const DEFAULT_SETTINGS: BenchSettings = {
   showSmoothed: true,
   showVideo: true,
   showMoves: false,
-  scrollHand: 'any',
-  scrollFinger: 'any',
-  scrollGain: 4,
-  scrollInvert: false,
 };
 
-/** v1 settings carried a wrong handedness-flip default; keep everything else from them. */
-function loadSettings(): Partial<BenchSettings> {
-  const v2 = load<Partial<BenchSettings>>(LS.settings);
-  if (v2) return v2;
-  const { flipHandedness: _dropped, ...rest } = load<Partial<BenchSettings>>(LS.settingsV1) ?? {};
-  return rest;
+const stored = load<Partial<BenchSettings>>(LS.settings) ?? {};
+const settings: BenchSettings = { ...DEFAULT_SETTINGS };
+for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof BenchSettings)[]) {
+  const value = stored[key];
+  if (typeof value === typeof DEFAULT_SETTINGS[key]) Object.assign(settings, { [key]: value });
 }
-
-const settings: BenchSettings = { ...DEFAULT_SETTINGS, ...loadSettings() };
 const saveSettings = () => save(LS.settings, settings);
 
 // ── core ─────────────────────────────────────────────────────────────────────
@@ -143,11 +132,14 @@ const canvas = $<HTMLCanvasElement>('overlay');
 const ctx = canvas.getContext('2d')!;
 const stageMsg = $('stageMsg');
 
+/** Which dock panels are on screen; hidden ones are not drawn or updated. */
+const visible = new Map<string, boolean>();
+const shows = (panel: string) => visible.get(panel) !== false;
+
 let landmarker: HandLandmarker | null = null;
 let stream: MediaStream | null = null;
 let running = false;
 let paused = false;
-let lastVideoTime = -1;
 let lastHands: Hand[] = [];
 let lastSmoothed = new Map<HandLabel, Landmark[]>();
 const t0 = performance.now();
@@ -161,6 +153,13 @@ function coreTime(t: number): number {
   return lastCoreT;
 }
 
+/** Header readouts: measured values stay cyan, `on`/`off` mark a live or idle source. */
+function setStat(id: string, text: string, state: '' | 'on' | 'off' = ''): void {
+  const node = $(id);
+  node.textContent = text;
+  node.className = state;
+}
+
 function setMessage(text: string, isError = false): void {
   stageMsg.textContent = text;
   stageMsg.classList.toggle('error', isError);
@@ -172,6 +171,8 @@ function setMessage(text: string, isError = false): void {
 async function createLandmarker(): Promise<void> {
   landmarker?.close();
   landmarker = null;
+  // Loaded on demand: opening the bench without starting the camera costs nothing.
+  const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
   const fileset = await FilesetResolver.forVisionTasks('/node_modules/@mediapipe/tasks-vision/wasm');
   const options = (delegate: 'GPU' | 'CPU') => ({
     baseOptions: { modelAssetPath: '/bench/models/hand_landmarker.task', delegate },
@@ -183,12 +184,12 @@ async function createLandmarker(): Promise<void> {
   });
   try {
     landmarker = await HandLandmarker.createFromOptions(fileset, options(settings.delegate));
-    $('stDelegate').textContent = settings.delegate;
+    setStat('stDelegate', settings.delegate, 'on');
   } catch (err) {
     if (settings.delegate === 'CPU') throw err;
     console.warn('GPU delegate failed, falling back to CPU', err);
     landmarker = await HandLandmarker.createFromOptions(fileset, options('CPU'));
-    $('stDelegate').textContent = 'CPU (GPU failed)';
+    setStat('stDelegate', 'CPU (GPU failed)', 'on');
   }
 }
 
@@ -231,12 +232,12 @@ async function startCamera(): Promise<void> {
     const aspect = video.videoWidth / video.videoHeight;
     applyConfig({ aspect });
     $('srcAspect').textContent = `${fmt(aspect, 4)} (${video.videoWidth}×${video.videoHeight})`;
-    $('stCamera').textContent = `${video.videoWidth}×${video.videoHeight}`;
+    setStat('stCamera', `${video.videoWidth}×${video.videoHeight}`, 'on');
     setMessage('');
     running = true;
     btn.textContent = 'Stop camera';
     await listDevices();
-    requestAnimationFrame(loop);
+    video.requestVideoFrameCallback(onVideoFrame);
   } catch (err) {
     console.error(err);
     stopCamera();
@@ -257,9 +258,8 @@ function stopCamera(): void {
   stream?.getTracks().forEach((t) => t.stop());
   stream = null;
   video.srcObject = null;
-  lastVideoTime = -1;
   $('btnCamera').textContent = 'Start camera';
-  $('stCamera').textContent = 'off';
+  setStat('stCamera', 'off', 'off');
   // Let the core see the hands disappear so lost events fire and state clears.
   handleEvents(core.update([], coreTime(performance.now() + core.getConfig().lostAfterMs + 1)));
   lastHands = [];
@@ -278,14 +278,13 @@ async function listDevices(): Promise<void> {
 
 // ── frame loop ───────────────────────────────────────────────────────────────
 
-function loop(): void {
+/** One pass per delivered camera frame — no polling, and nothing runs while the tab is hidden. */
+function onVideoFrame(): void {
   if (!running) return;
-  if (!paused && landmarker && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
+  if (!paused && landmarker) {
     const now = performance.now();
     const res = landmarker.detectForVideo(video, now);
-    const tDetect = performance.now();
-    perf.detectMs = perf.detectMs * 0.9 + (tDetect - now) * 0.1;
+    perf.detectMs = perf.detectMs * 0.9 + (performance.now() - now) * 0.1;
     processFrame(toHands(res), now);
   }
   const t = performance.now();
@@ -293,12 +292,11 @@ function loop(): void {
     perf.fps = (perf.frames * 1000) / (t - perf.since);
     perf.frames = 0;
     perf.since = t;
-    $('stFps').textContent = fmt(perf.fps, 1);
-    $('stDetect').textContent = `${fmt(perf.detectMs, 1)} ms`;
-    $('stCore').textContent = `${fmt(perf.coreMs, 2)} ms`;
+    setStat('stFps', fmt(perf.fps, 1));
+    setStat('stDetect', `${fmt(perf.detectMs, 1)} ms`);
+    setStat('stCore', `${fmt(perf.coreMs, 2)} ms`);
   }
-  session.tick();
-  requestAnimationFrame(loop);
+  video.requestVideoFrameCallback(onVideoFrame);
 }
 
 /** Everything after detection. Also driven directly by `window.gesturecoreBench.feed` for debugging. */
@@ -318,6 +316,10 @@ function processFrame(hands: Hand[], now: number): GestureEvent[] {
 }
 
 function updateVisualSmoothing(hands: Hand[], t: number): void {
+  if (!shows('stage') || !settings.showSmoothed) {
+    if (lastSmoothed.size) lastSmoothed = new Map();
+    return;
+  }
   const next = new Map<HandLabel, Landmark[]>();
   for (const h of hands) {
     let s = smoothers.get(h.handedness);
@@ -335,7 +337,6 @@ const moveLines = new Map<HandLabel, { node: HTMLElement; count: number }>();
 
 function handleEvents(events: GestureEvent[]): void {
   for (const e of events) {
-    scroll.onEvent(e);
     session.onEvent(e);
     if (e.type === 'lost') smoothers.delete(e.hand);
     log(e);
@@ -351,7 +352,7 @@ function log(e: GestureEvent): void {
     }
     return;
   }
-  const cls = e.type === 'pinch:move' ? 'move' : e.type.startsWith('pinch') ? 'pinch' : e.type;
+  const cls = e.type.replace(':', '').replace('pinchmove', 'move');
   let detail = '';
   if (e.type === 'pose' || e.type === 'motion') detail = ` ${e.name}`;
   if (e.type === 'pinch:start' || e.type === 'pinch:end') detail = ` ${e.finger}`;
@@ -368,40 +369,7 @@ function log(e: GestureEvent): void {
   while (logEl.childElementCount > LOG_LIMIT) logEl.lastElementChild!.remove();
 }
 
-/** Pinch-drag scrolling: the thin "browser adapter" this library exists for. */
-const scroll = (() => {
-  const box = $('scrollBox');
-  let drag: { hand: HandLabel; y0: number; s0: number } | null = null;
-
-  const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel', 'india', 'juliet'];
-  for (let i = 1; i <= 80; i++) {
-    const text = Array.from({ length: 14 + (i % 9) }, (_, j) => words[(i * 7 + j * 3) % words.length]).join(' ');
-    box.append(el('p', {}, [el('b', { textContent: `§${i} ` }), text]));
-  }
-
-  function onEvent(e: GestureEvent): void {
-    const wants =
-      (settings.scrollHand === 'any' || settings.scrollHand === e.hand) &&
-      (e.type !== 'pinch:start' || settings.scrollFinger === 'any' || settings.scrollFinger === e.finger);
-    if (e.type === 'pinch:start' && wants && !drag) {
-      const f = core.getFeatures(e.hand);
-      if (f) drag = { hand: e.hand, y0: f.centroid.y, s0: box.scrollTop };
-    } else if (e.type === 'pinch:move' && drag?.hand === e.hand) {
-      const f = core.getFeatures(e.hand);
-      if (f) {
-        const dy = f.centroid.y - drag.y0;
-        const sign = settings.scrollInvert ? 1 : -1;
-        box.scrollTop = drag.s0 + sign * dy * settings.scrollGain * box.clientHeight;
-      }
-    } else if ((e.type === 'pinch:end' || e.type === 'lost') && drag?.hand === e.hand) {
-      drag = null;
-    }
-    box.classList.toggle('dragging', drag !== null);
-  }
-  return { onEvent };
-})();
-
-/** False-activation meter for the definition-of-done check. */
+/** False-activation meter for the definition-of-done check. Measures the core; changes nothing. */
 const session = (() => {
   type Record = { date: string; minutes: number; activations: number; falses: number };
   let active = false;
@@ -409,6 +377,7 @@ const session = (() => {
   let elapsedBefore = 0;
   let activations = 0;
   let falses = 0;
+  let ticker: number | undefined;
 
   const elapsed = () => elapsedBefore + (active ? performance.now() - startedAt : 0);
 
@@ -447,6 +416,7 @@ const session = (() => {
   }
 
   function toggle(): void {
+    clearInterval(ticker);
     if (active) {
       elapsedBefore = elapsed();
       active = false;
@@ -457,17 +427,19 @@ const session = (() => {
     } else {
       active = true;
       startedAt = performance.now();
+      ticker = window.setInterval(render, 500);
     }
-    $('btnSession').textContent = active ? 'Stop session' : elapsedBefore > 0 ? 'Resume session' : 'Start session';
+    $('btnSession').textContent = active ? 'Stop' : elapsedBefore > 0 ? 'Resume' : 'Start';
     render();
   }
 
   function reset(): void {
+    clearInterval(ticker);
     active = false;
     elapsedBefore = 0;
     activations = 0;
     falses = 0;
-    $('btnSession').textContent = 'Start session';
+    $('btnSession').textContent = 'Start';
     render();
   }
 
@@ -475,22 +447,14 @@ const session = (() => {
   $('btnSessionReset').addEventListener('click', reset);
   renderHistory();
 
-  let lastRender = 0;
   return {
     onEvent(e: GestureEvent) {
-      if (active && e.type === 'pinch:start') activations++;
+      if (active && (e.type === 'pinch:start' || e.type === 'motion')) activations++;
     },
     markFalse() {
       if (!active) return;
       falses++;
       render();
-    },
-    tick() {
-      const t = performance.now();
-      if (t - lastRender > 250) {
-        lastRender = t;
-        render();
-      }
     },
   };
 })();
@@ -507,7 +471,15 @@ const CONNECTIONS: [number, number][] = [
 ];
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-const COLORS = { engage: css('--engage'), pose: css('--pose'), pinch: css('--pinch'), Left: css('--left'), Right: css('--right') };
+const COLORS = {
+  data: css('--data'),
+  pending: css('--pending'),
+  active: css('--active'),
+  fault: css('--fault'),
+  limit: css('--limit'),
+  raw: css('--raw'),
+  text: css('--text'),
+};
 
 function drawSkeleton(pts: Landmark[], color: string, width: number, dots: boolean): void {
   const W = canvas.width;
@@ -529,20 +501,22 @@ function drawSkeleton(pts: Landmark[], color: string, width: number, dots: boole
   }
 }
 
-function ring(x: number, y: number, r: number, progress: number, color: string, done: boolean): void {
+/** Charging arcs are amber; a completed one turns green and thickens. */
+function ring(x: number, y: number, r: number, progress: number, done: boolean): void {
   ctx.lineWidth = done ? 5 : 3;
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.stroke();
   if (progress <= 0) return;
-  ctx.strokeStyle = color;
+  ctx.strokeStyle = done ? COLORS.active : COLORS.pending;
   ctx.beginPath();
   ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
   ctx.stroke();
 }
 
 function draw(): void {
+  if (!shows('stage')) return;
   const W = canvas.width;
   const H = canvas.height;
   ctx.clearRect(0, 0, W, H);
@@ -562,9 +536,12 @@ function draw(): void {
 
   const cfg = core.getConfig();
   for (const h of lastHands) {
-    if (settings.showRaw) drawSkeleton(h.landmarks, 'rgba(160,160,160,0.7)', 1, !settings.showSmoothed);
+    if (settings.showRaw) drawSkeleton(h.landmarks, COLORS.raw, 1, !settings.showSmoothed);
     const sm = lastSmoothed.get(h.handedness);
-    if (settings.showSmoothed && sm) drawSkeleton(sm, COLORS[h.handedness], 2.5, true);
+    // Smoothed points are a measurement (cyan) until the hand is engaged (green).
+    if (settings.showSmoothed && sm) {
+      drawSkeleton(sm, core.getHandState(h.handedness)?.engaged ? COLORS.active : COLORS.data, 2.5, true);
+    }
   }
 
   for (const label of LABELS) {
@@ -576,26 +553,26 @@ function draw(): void {
     const cy = f.centroid.y * H;
     const r = Math.max(18, spanPx * 0.75);
 
-    if (cfg.engage.pose !== '') ring(cx, cy, r + 10, st.engageProgress, COLORS.engage, st.engaged);
-    ring(cx, cy, r, st.poseProgress, COLORS.pose, st.poseProgress >= 1);
+    if (cfg.engage.pose !== '') ring(cx, cy, r + 10, st.engageProgress, st.engaged);
+    ring(cx, cy, r, st.poseProgress, st.poseProgress >= 1);
 
     const src = lastSmoothed.get(label) ?? lastHands.find((h) => h.handedness === label)?.landmarks;
     if (src && st.pinchFinger) {
       const tip = src[TIP[st.pinchFinger]]!;
       const mx = ((src[4]!.x + tip.x) / 2) * W;
       const my = ((src[4]!.y + tip.y) / 2) * H;
-      ring(mx, my, 14, st.pinchProgress, COLORS.pinch, st.pinched);
+      ring(mx, my, 14, st.pinchProgress, st.pinched);
     }
 
     const pinchText = st.pinched ? ` · PINCH ${st.pinchFinger}` : '';
     const text = `${label}${st.pose ? ` · ${st.pose}` : ''}${st.engaged ? ' · engaged' : ''}${pinchText}`;
-    ctx.font = '600 14px system-ui, sans-serif';
+    ctx.font = '600 13px Consolas, monospace';
     const tw = ctx.measureText(text).width;
     const tx = Math.min(Math.max(cx - tw / 2, 4), W - tw - 4);
     const ty = Math.min(cy + r + 30, H - 8);
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(tx - 4, ty - 15, tw + 8, 20);
-    ctx.fillStyle = COLORS[label];
+    ctx.fillStyle = st.engaged ? COLORS.active : COLORS.text;
     ctx.fillText(text, tx, ty);
   }
 }
@@ -637,9 +614,9 @@ function makeFingerRow(parent: HTMLElement): FingerBars {
 function buildHandCard(label: HandLabel) {
   const rows = el('div', { className: 'rows' });
   const badges = {
-    engaged: el('span', { className: 'badge engage', textContent: 'engaged' }),
-    pinched: el('span', { className: 'badge pinch', textContent: 'pinch' }),
-    pose: el('span', { className: 'badge pose', textContent: '–' }),
+    engaged: el('span', { className: 'badge', textContent: 'engaged' }),
+    pinched: el('span', { className: 'badge', textContent: 'pinch' }),
+    pose: el('span', { className: 'badge', textContent: '–' }),
   };
   const card = el('div', { className: `hand ${label} absent` }, [
     el('h2', {}, [el('span', { className: 'name', textContent: label }), badges.engaged, badges.pinched, badges.pose]),
@@ -656,9 +633,9 @@ function buildHandCard(label: HandLabel) {
   };
   rows.append(el('div', { className: 'sep' }));
   const progress = {
-    engage: makeRow(rows, 'engage dwell', 'engage'),
-    pinch: makeRow(rows, 'pinch dwell', 'pinch'),
-    pose: makeRow(rows, 'pose dwell', 'pose'),
+    engage: makeRow(rows, 'engage dwell', 'dwell'),
+    pinch: makeRow(rows, 'pinch dwell', 'dwell'),
+    pose: makeRow(rows, 'pose dwell', 'dwell'),
   };
   rows.append(el('div', { className: 'sep' }));
   const poseRows = el('div');
@@ -669,7 +646,8 @@ function buildHandCard(label: HandLabel) {
 }
 
 const cards = new Map(LABELS.map((l) => [l, buildHandCard(l)] as const));
-$('readout').append(...[...cards.values()].map((c) => c.card));
+$('handRight').append(cards.get('Right')!.card);
+$('handLeft').append(cards.get('Left')!.card);
 
 function setBar(ref: RowRefs, frac: number, text: string): void {
   ref.fill.style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
@@ -680,13 +658,14 @@ function renderReadout(): void {
   const cfg = core.getConfig();
   const RAW_SCALE = 1.2; // pinchRaw bar spans 0..1.2
   for (const [label, c] of cards) {
+    if (!shows(label === 'Left' ? 'hand-left' : 'hand-right')) continue;
     const f: Features | null = core.getFeatures(label);
     const st = core.getHandState(label);
     c.card.classList.toggle('absent', !f);
-    c.badges.engaged.classList.toggle('on', !!st?.engaged);
-    c.badges.pinched.classList.toggle('on', !!st?.pinched);
+    c.badges.engaged.className = `badge${st?.engaged ? ' on' : st?.engageProgress ? ' pending' : ''}`;
+    c.badges.pinched.className = `badge${st?.pinched ? ' on' : st?.pinchFinger ? ' pending' : ''}`;
     c.badges.pinched.textContent = st?.pinchFinger ? `pinch ${st.pinchFinger}` : 'pinch';
-    c.badges.pose.classList.toggle('on', !!st?.pose && st.poseProgress >= 1);
+    c.badges.pose.className = `badge${st?.pose ? (st.poseProgress >= 1 ? ' on' : ' pending') : ''}`;
     c.badges.pose.textContent = st?.pose ?? 'no pose';
 
     const key = cfg.poses.map((p) => p.name).join('|');
@@ -702,7 +681,7 @@ function renderReadout(): void {
       c.motionRefs = cfg.motions.map((m) => makeRow(c.motionRows, `↝ ${m.name}`, 'motion'));
     }
     if (!f || !st) {
-      for (const ref of c.poseRefs) ref.row.classList.remove('best');
+      for (const ref of c.poseRefs) ref.row.className = 'row';
       continue;
     }
     st.motionProgress.forEach((m, i) => {
@@ -716,9 +695,9 @@ function renderReadout(): void {
     for (const finger of PINCH_FINGERS) {
       const b = c.r.pinchRaws.bars[finger];
       const enabled = cfg.pinch.fingers.includes(finger);
+      const closing = enabled && f.pinchRaws[finger] < cfg.pinch.closed + h;
       b.fill.style.width = `${Math.min(1, f.pinchRaws[finger] / RAW_SCALE) * 100}%`;
-      b.bar.style.opacity = enabled ? '1' : '0.3';
-      b.bar.classList.toggle('active', st.pinchFinger === finger);
+      b.bar.className = `bar${!enabled ? ' off' : st.pinched && st.pinchFinger === finger ? ' pinched' : closing ? ' closing' : ''}`;
       b.ticks[0]!.style.left = `${((cfg.pinch.closed + h) / RAW_SCALE) * 100}%`;
       b.ticks[1]!.style.left = `${((cfg.pinch.closed + 3 * h) / RAW_SCALE) * 100}%`;
       if (f.pinchRaws[finger] < f.pinchRaws[closest]) closest = finger;
@@ -733,15 +712,20 @@ function renderReadout(): void {
     setBar(c.r.span, f.span / 0.6, fmt(f.span));
     setBar(c.r.centroid, 0, `${fmt(f.centroid.x, 2)},${fmt(f.centroid.y, 2)}`);
 
-    setBar(c.progress.engage, st.engageProgress, cfg.engage.pose === '' ? 'always' : fmt(st.engageProgress, 2));
-    setBar(c.progress.pinch, st.pinchProgress, fmt(st.pinchProgress, 2));
-    setBar(c.progress.pose, st.poseProgress, fmt(st.poseProgress, 2));
+    const dwell = (ref: RowRefs, value: number, done: boolean, text: string) => {
+      setBar(ref, value, text);
+      ref.row.classList.toggle('done', done);
+    };
+    dwell(c.progress.engage, st.engageProgress, st.engaged, cfg.engage.pose === '' ? 'always' : fmt(st.engageProgress, 2));
+    dwell(c.progress.pinch, st.pinchProgress, st.pinched, fmt(st.pinchProgress, 2));
+    dwell(c.progress.pose, st.poseProgress, st.poseProgress >= 1, fmt(st.poseProgress, 2));
 
     st.poseScores.forEach((m, i) => {
       const ref = c.poseRefs[i];
       if (!ref) return;
       setBar(ref, m.score, fmt(m.score, 2));
-      ref.row.classList.toggle('best', m.name === st.pose);
+      // amber while this pose is the held one, green once its event has fired
+      ref.row.className = `row${m.name === st.pose ? (st.poseProgress >= 1 ? ' fired' : ' held') : ''}`;
     });
   }
 }
@@ -1274,38 +1258,18 @@ const resetTracking = () => {
   smoothers.clear();
   lastHands = [];
   lastSmoothed.clear();
-  $('legendMirror').textContent = settings.mirror ? 'view is mirrored' : 'view is not mirrored';
+  $('keyMirror').textContent = settings.mirror ? 'view mirrored' : 'view not mirrored';
   draw();
   renderReadout();
 };
 bindCheck('hdrSwap', 'flipHandedness', resetTracking);
 bindCheck('hdrMirror', 'mirror', resetTracking);
-$('legendMirror').textContent = settings.mirror ? 'view is mirrored' : 'view is not mirrored';
+$('keyMirror').textContent = settings.mirror ? 'view mirrored' : 'view not mirrored';
 
-const scrollFingerSel = $<HTMLSelectElement>('scrollFinger');
-scrollFingerSel.value = settings.scrollFinger;
-scrollFingerSel.addEventListener('change', () => {
-  settings.scrollFinger = scrollFingerSel.value as BenchSettings['scrollFinger'];
-  saveSettings();
-});
 bindCheck('ovRaw', 'showRaw', draw);
 bindCheck('ovSmooth', 'showSmoothed', draw);
 bindCheck('ovVideo', 'showVideo', draw);
 bindCheck('chkMoves', 'showMoves');
-bindCheck('scrollInvert', 'scrollInvert');
-
-const scrollHandSel = $<HTMLSelectElement>('scrollHand');
-scrollHandSel.value = settings.scrollHand;
-scrollHandSel.addEventListener('change', () => {
-  settings.scrollHand = scrollHandSel.value as BenchSettings['scrollHand'];
-  saveSettings();
-});
-$<HTMLInputElement>('scrollGain').value = String(settings.scrollGain);
-$<HTMLInputElement>('scrollGainN').value = String(settings.scrollGain);
-bindPair('scrollGain', 'scrollGainN', (v) => {
-  settings.scrollGain = v;
-  saveSettings();
-});
 
 async function restartCameraIfRunning(): Promise<void> {
   if (!running) return;
@@ -1365,23 +1329,124 @@ delSel.addEventListener('change', async () => {
   }
 })();
 
-// tabs
-const tabButtons = [...document.querySelectorAll<HTMLButtonElement>('#tabs button')];
-function showTab(name: string): void {
-  if (!tabButtons.some((b) => b.dataset.tab === name)) name = 'tuning';
-  settings.tab = name;
-  saveSettings();
-  for (const b of tabButtons) b.classList.toggle('active', b.dataset.tab === name);
-  for (const pane of document.querySelectorAll<HTMLElement>('.tabpane')) pane.hidden = pane.dataset.pane !== name;
-  // Docs need room: they take over the readout column while open.
-  document.querySelector('main')!.classList.toggle('docs-open', name === 'docs');
-}
-tabButtons.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab!)));
-showTab(settings.tab);
-$('btnDocs').addEventListener('click', () => showTab(settings.tab === 'docs' ? 'tuning' : 'docs'));
+// ── dock: every panel is a draggable window ──────────────────────────────────
 
-// In-page doc links scroll the docs pane without touching the URL.
-document.querySelector('.docs')!.addEventListener('click', (e) => {
+const PANELS: { id: string; title: string }[] = [
+  { id: 'stage', title: 'Camera' },
+  { id: 'events', title: 'Events' },
+  { id: 'hand-right', title: 'Hand · R' },
+  { id: 'hand-left', title: 'Hand · L' },
+  { id: 'tuning', title: 'Tuning' },
+  { id: 'gestures', title: 'Gestures' },
+  { id: 'reliability', title: 'Reliability' },
+  { id: 'fixtures', title: 'Fixtures' },
+  { id: 'source', title: 'Source' },
+  { id: 'docs', title: 'Docs' },
+];
+
+const bodies = new Map(
+  PANELS.map(({ id }) => [id, document.querySelector<HTMLElement>(`#panels [data-panel="${id}"]`)!] as const),
+);
+
+const FUI_THEME: DockviewTheme = { name: 'fui', className: 'dockview-theme-fui', colorScheme: 'dark' };
+
+const dock: DockviewApi = createDockview($('dock'), {
+  theme: FUI_THEME,
+  // Panels stay mounted when hidden: the canvas, the log and every form keep their
+  // state and their element ids. Per-frame work is skipped via `visible` instead.
+  defaultRenderer: 'always',
+  createComponent: (options): IContentRenderer => {
+    const element = bodies.get(options.name)!;
+    return {
+      element,
+      init(params) {
+        visible.set(options.name, params.api.isVisible);
+        params.api.onDidVisibilityChange((e) => {
+          visible.set(options.name, e.isVisible);
+          if (!e.isVisible) return;
+          draw();
+          renderReadout();
+        });
+      },
+      dispose() {
+        visible.set(options.name, false);
+        // Keep the DOM (and its listeners) alive so the panel can be reopened.
+        $('panels').append(element);
+      },
+    };
+  },
+});
+
+function defaultLayout(): void {
+  dock.clear();
+  const add = (id: string, position?: Parameters<DockviewApi['addPanel']>[0]['position']) =>
+    dock.addPanel({ id, component: id, title: PANELS.find((p) => p.id === id)!.title, ...(position ? { position } : {}) });
+  add('stage');
+  add('events', { referencePanel: 'stage', direction: 'below' });
+  add('hand-right', { referencePanel: 'stage', direction: 'right' });
+  add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
+  add('tuning', { referencePanel: 'hand-right', direction: 'right' });
+  for (const id of ['gestures', 'reliability', 'fixtures', 'source', 'docs']) {
+    add(id, { referencePanel: 'tuning', direction: 'within' });
+  }
+  dock.getPanel('stage')?.api.group.api.setSize({ height: window.innerHeight * 0.62 });
+  dock.getPanel('hand-right')?.api.group.api.setSize({ width: 300 });
+  dock.getPanel('tuning')?.api.setActive();
+}
+
+const saved = load<SerializedDockview>(LS.layout);
+try {
+  if (saved) dock.fromJSON(saved);
+  else defaultLayout();
+} catch {
+  defaultLayout();
+}
+if (dock.panels.length === 0) defaultLayout();
+
+let layoutSave: number | undefined;
+dock.onDidLayoutChange(() => {
+  clearTimeout(layoutSave);
+  layoutSave = window.setTimeout(() => save(LS.layout, dock.toJSON()), 400);
+});
+
+function openPanel(id: string): void {
+  const panel = dock.getPanel(id);
+  if (panel) panel.api.setActive();
+  else {
+    const active = dock.activePanel?.id;
+    dock.addPanel({
+      id,
+      component: id,
+      title: PANELS.find((p) => p.id === id)!.title,
+      ...(active ? { position: { referencePanel: active, direction: 'within' as const } } : {}),
+    });
+  }
+}
+
+const panelMenu = $<HTMLDetailsElement>('panelMenu');
+$('panelMenuList').append(
+  ...PANELS.map((p) => {
+    const b = el('button', { type: 'button', textContent: p.title });
+    b.addEventListener('click', () => {
+      openPanel(p.id);
+      panelMenu.open = false;
+    });
+    return b;
+  }),
+  el('button', { type: 'button', textContent: 'Reset layout' }, []),
+);
+$('panelMenuList').lastElementChild!.addEventListener('click', () => {
+  defaultLayout();
+  panelMenu.open = false;
+});
+document.addEventListener('click', (e) => {
+  if (panelMenu.open && !panelMenu.contains(e.target as Node)) panelMenu.open = false;
+});
+
+$('btnDocs').addEventListener('click', () => openPanel('docs'));
+
+// In-page doc links scroll the docs panel without touching the URL.
+bodies.get('docs')!.addEventListener('click', (e) => {
   const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#doc-"]');
   if (!link) return;
   e.preventDefault();
