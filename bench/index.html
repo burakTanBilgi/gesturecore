@@ -166,14 +166,24 @@
       header .check { color: var(--muted); display: flex; gap: 5px; align-items: center; font-size: 11px; }
 
       .menu { position: relative; }
-      .menu > summary { list-style: none; cursor: pointer; }
-      .menu > summary::-webkit-details-marker { display: none; }
-      .menu > div {
-        position: absolute; right: 0; top: 24px; z-index: 40; background: rgba(6, 14, 20, 0.92);
-        border: 1px solid var(--frame); border-radius: var(--r); padding: 4px; display: grid; gap: 2px; min-width: 156px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      .menupop {
+        position: absolute; right: 0; top: 26px; z-index: 40; background: rgba(6, 14, 20, 0.95);
+        border: 1px solid var(--frame); border-radius: var(--r); padding: 4px; display: grid; gap: 1px; min-width: 178px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
       }
-      .menu button { width: 100%; text-align: left; border-color: transparent; background: none; }
+      .menupop[hidden] { display: none; }
+      .menupop button {
+        width: 100%; text-align: left; border-color: transparent; background: none;
+        display: flex; align-items: center; gap: 8px; letter-spacing: 0.06em;
+      }
+      /* a filled mark means the panel is open right now */
+      .menupop .mark {
+        width: 11px; height: 11px; flex: none; border: 1px solid var(--frame); border-radius: 3px;
+      }
+      .menupop .on .mark { background: var(--data); border-color: var(--data); box-shadow: 0 0 8px rgba(79, 209, 224, 0.5); }
+      .menupop button:not(.on) { color: var(--muted); }
+      .menupop button.plain { color: var(--text); padding-left: 30px; }
+      .menupop .sep { height: 1px; background: var(--frame); margin: 3px 2px; }
 
       /* ── dock ─────────────────────────────────────────────────────────── */
       #dock { height: calc(100% - 32px); }
@@ -416,21 +426,30 @@
       .dockview-theme-fui .dv-tabs-overflow-dropdown-default, .dockview-theme-fui .dv-tabs-overflow-container {
         border-radius: var(--dv-dropdown-border-radius);
       }
-      /* the label sits centred in the tab; the close button floats at its right edge */
-      .dockview-theme-fui .dv-default-tab { position: relative; width: 100%; }
-      .dockview-theme-fui .dv-default-tab-content { flex: 1 1 auto; text-align: center; padding: 0 16px; }
-      /* close buttons: faint until wanted, then red — this one throws work away */
-      .dockview-theme-fui .dv-default-tab-action {
-        position: absolute; right: 0; top: 50%; transform: translateY(-50%);
-        opacity: 0.3; border-radius: 50%; padding: 2px; color: var(--muted);
-        transition: opacity 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+      /* our own tab: label centred in the whole tab, close button pinned right */
+      .tabface { display: flex; align-items: center; height: 100%; width: 100%; position: relative; }
+      .tabface .label { flex: 1 1 auto; text-align: center; padding: 0 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tabface .x {
+        position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+        width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%;
+        background: transparent; color: var(--muted); opacity: 0; cursor: pointer;
+        transition: opacity 0.18s ease, color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
       }
-      .dockview-theme-fui .dv-tab:hover .dv-default-tab-action { opacity: 0.6; }
-      .dockview-theme-fui .dv-default-tab-action:hover {
-        opacity: 1; color: #ff5064; background: rgba(255, 80, 100, 0.12); box-shadow: 0 0 12px rgba(255, 80, 100, 0.6);
+      .dv-tab:hover .tabface .x, .tabface .x:focus-visible { opacity: 0.55; }
+      /* two strokes, drawn rather than an icon font, so they stay crisp at any size */
+      .tabface .x::before, .tabface .x::after {
+        content: ''; position: absolute; left: 3.5px; top: 7.5px; width: 9px; height: 1px;
+        background: currentColor; border-radius: 1px;
       }
-      .dockview-theme-fui .dv-default-tab-action:active {
-        color: #ff1f3a; background: rgba(255, 31, 58, 0.22); box-shadow: 0 0 18px rgba(255, 31, 58, 0.85);
+      .tabface .x::before { transform: rotate(45deg); }
+      .tabface .x::after { transform: rotate(-45deg); }
+      .tabface .x:hover {
+        opacity: 1; color: #ff5064; background: rgba(255, 80, 100, 0.14);
+        box-shadow: 0 0 12px rgba(255, 80, 100, 0.55);
+      }
+      .tabface .x:active {
+        color: #ff1f3a; background: rgba(255, 31, 58, 0.26);
+        box-shadow: 0 0 18px rgba(255, 31, 58, 0.9);
       }
       .dockview-theme-fui .dv-groupview { border-radius: var(--dv-border-radius); overflow: hidden; }
       body.glass .dockview-theme-fui { --dv-group-view-background-color: transparent; }
@@ -455,10 +474,10 @@
         <input type="checkbox" id="hdrSwap" /> swap l/r
       </label>
       <span class="stat"><kbd>Space</kbd> pause <kbd>R</kbd> reset</span>
-      <details class="menu" id="panelMenu">
-        <summary><button type="button" tabindex="-1">Panels</button></summary>
-        <div id="panelMenuList"></div>
-      </details>
+      <div class="menu">
+        <button id="btnPanels" aria-haspopup="menu" aria-expanded="false">Panels ▾</button>
+        <div id="panelMenuList" class="menupop" role="menu" hidden></div>
+      </div>
       <button id="btnDocs" title="How the bench and gesturecore work">Docs</button>
       <button id="btnCamera" class="primary">Start camera</button>
     </header>

@@ -6,7 +6,14 @@
  */
 import 'virtual:dockview.css';
 import type { HandLandmarker, HandLandmarkerResult } from '@mediapipe/tasks-vision';
-import { createDockview, type DockviewApi, type DockviewTheme, type IContentRenderer, type SerializedDockview } from 'dockview-core';
+import {
+  createDockview,
+  type DockviewApi,
+  type DockviewTheme,
+  type IContentRenderer,
+  type ITabRenderer,
+  type SerializedDockview,
+} from 'dockview-core';
 import {
   DEFAULT_MOTIONS,
   DEFAULT_POSES,
@@ -1555,10 +1562,31 @@ const bodies = new Map(
 
 const FUI_THEME: DockviewTheme = { name: 'fui', className: 'dockview-theme-fui', colorScheme: 'dark' };
 
+/** Our own tab face: centred label, and a close button we draw ourselves. */
+function createTab(): ITabRenderer {
+  const label = el('span', { className: 'label' });
+  const close = el('button', { className: 'x', type: 'button', title: 'Close panel' });
+  const element = el('div', { className: 'tabface' }, [label, close]);
+  return {
+    element,
+    init(params) {
+      label.textContent = params.title ?? '';
+      close.setAttribute('aria-label', `Close ${params.title ?? 'panel'}`);
+      close.addEventListener('click', (e) => {
+        e.stopPropagation(); // closing is not selecting
+        params.api.close();
+      });
+      params.api.onDidTitleChange((e) => (label.textContent = e.title));
+    },
+  };
+}
+
 const dock: DockviewApi = createDockview($('dock'), {
   theme: FUI_THEME,
   // A lone panel's name spans its whole tab strip.
   singleTabMode: 'fullwidth',
+  defaultTabComponent: 'fui',
+  createTabComponent: createTab,
   // Panels stay mounted when hidden: the canvas, the log and every form keep their
   // state and their element ids. Per-frame work is skipped via `visible` instead.
   defaultRenderer: 'always',
@@ -1631,25 +1659,54 @@ function openPanel(id: string): void {
   }
 }
 
-const panelMenu = $<HTMLDetailsElement>('panelMenu');
-$('panelMenuList').append(
-  ...PANELS.map((p) => {
-    const b = el('button', { type: 'button', textContent: p.title });
-    b.addEventListener('click', () => {
-      openPanel(p.id);
-      panelMenu.open = false;
+// Panels menu: a view menu. A filled mark means the panel is open; clicking toggles it.
+const panelMenu = (() => {
+  const button = $('btnPanels');
+  const pop = $('panelMenuList');
+  const rows = PANELS.map((p) => {
+    const row = el('button', { type: 'button' }, [el('span', { className: 'mark' }), p.title]);
+    row.addEventListener('click', () => {
+      const panel = dock.getPanel(p.id);
+      if (panel) panel.api.close();
+      else openPanel(p.id);
+      refresh();
     });
-    return b;
-  }),
-  el('button', { type: 'button', textContent: 'Reset layout' }, []),
-);
-$('panelMenuList').lastElementChild!.addEventListener('click', () => {
-  defaultLayout();
-  panelMenu.open = false;
-});
-document.addEventListener('click', (e) => {
-  if (panelMenu.open && !panelMenu.contains(e.target as Node)) panelMenu.open = false;
-});
+    return { id: p.id, row };
+  });
+  const reset = el('button', { type: 'button', className: 'plain' }, ['Reset layout']);
+  reset.addEventListener('click', () => {
+    defaultLayout();
+    refresh();
+  });
+  pop.append(...rows.map((r) => r.row), el('div', { className: 'sep' }), reset);
+
+  function refresh(): void {
+    for (const r of rows) r.row.classList.toggle('on', !!dock.getPanel(r.id));
+  }
+  let shown = false;
+  function setOpen(open: boolean): void {
+    shown = open;
+    pop.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    if (open) refresh();
+  }
+
+  button.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(!shown);
+  });
+  document.addEventListener('click', (e) => {
+    if (shown && !pop.contains(e.target as Node)) setOpen(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setOpen(false);
+  });
+  dock.onDidLayoutChange(() => {
+    if (shown) refresh();
+  });
+  return { refresh };
+})();
+panelMenu.refresh();
 
 $('btnDocs').addEventListener('click', () => openPanel('docs'));
 
