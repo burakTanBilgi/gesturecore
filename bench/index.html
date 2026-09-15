@@ -64,7 +64,8 @@
           linear-gradient(90deg, rgba(126, 209, 224, 0.028) 1px, transparent 1px);
         background-size: 46px 46px, 46px 46px;
       }
-      header, #dock { position: relative; z-index: 2; }
+      #dock { position: relative; z-index: 2; }
+      header { position: relative; z-index: 3; }
 
       /* scrollbars: thin, square, neutral */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -162,12 +163,20 @@
       .stat b { font-family: var(--mono); font-weight: 500; color: var(--data); letter-spacing: 0; text-transform: none; }
       .stat b.off { color: var(--raw); }
       .stat b.on { color: var(--active); }
-      header .spacer { flex: 1; }
+      /* the stats give way first, so the controls never get pushed off the edge */
+      header .stats { display: flex; gap: 12px; flex: 1 1 auto; min-width: 0; overflow: hidden; }
+      header .stats .stat { flex: 0 0 auto; }
       header .check { color: var(--muted); display: flex; gap: 5px; align-items: center; font-size: 11px; }
+      /* narrow windows drop the nice-to-haves before the controls */
+      @media (max-width: 1100px) { header .keys { display: none; } }
+      @media (max-width: 860px) { header .stats { display: none; } }
+      @media (max-width: 640px) { header h1 span { display: none; } }
 
       .menu { position: relative; }
+      /* fixed, not absolute: the header clips its own overflow, and the dock would
+         otherwise paint over it */
       .menupop {
-        position: absolute; right: 0; top: 26px; z-index: 40; background: rgba(6, 14, 20, 0.95);
+        position: fixed; z-index: 200; background: rgba(6, 14, 20, 0.95);
         border: 1px solid var(--frame); border-radius: var(--r); padding: 4px; display: grid; gap: 1px; min-width: 178px;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
       }
@@ -461,19 +470,20 @@
     <canvas id="bg" width="2" height="2" aria-hidden="true"></canvas>
     <header>
       <h1>gesturecore <span>bench</span></h1>
-      <span class="stat">cam <b id="stCamera" class="off">off</b></span>
-      <span class="stat">delegate <b id="stDelegate" class="off">–</b></span>
-      <span class="stat">fps <b id="stFps">–</b></span>
-      <span class="stat">detect <b id="stDetect">–</b></span>
-      <span class="stat">core <b id="stCore">–</b></span>
-      <span class="spacer"></span>
+      <div class="stats">
+        <span class="stat">cam <b id="stCamera" class="off">off</b></span>
+        <span class="stat">delegate <b id="stDelegate" class="off">–</b></span>
+        <span class="stat">fps <b id="stFps">–</b></span>
+        <span class="stat">detect <b id="stDetect">–</b></span>
+        <span class="stat">core <b id="stCore">–</b></span>
+      </div>
       <label class="check" title="Flip the camera image (and the x coordinates the core receives)">
         <input type="checkbox" id="hdrMirror" /> mirror
       </label>
       <label class="check" title="Raise only your right hand: it should be labelled Right. If not, tick this.">
         <input type="checkbox" id="hdrSwap" /> swap l/r
       </label>
-      <span class="stat"><kbd>Space</kbd> pause <kbd>R</kbd> reset</span>
+      <span class="stat keys"><kbd>Space</kbd> pause <kbd>R</kbd> reset</span>
       <div class="menu">
         <button id="btnPanels" aria-haspopup="menu" aria-expanded="false">Panels ▾</button>
         <div id="panelMenuList" class="menupop" role="menu" hidden></div>

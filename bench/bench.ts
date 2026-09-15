@@ -1688,7 +1688,11 @@ const panelMenu = (() => {
     shown = open;
     pop.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
-    if (open) refresh();
+    if (!open) return;
+    const r = button.getBoundingClientRect();
+    pop.style.top = `${Math.round(r.bottom + 4)}px`;
+    pop.style.right = `${Math.max(4, Math.round(window.innerWidth - r.right))}px`;
+    refresh();
   }
 
   button.addEventListener('click', (e) => {
