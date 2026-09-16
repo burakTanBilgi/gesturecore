@@ -657,6 +657,43 @@
         </fieldset>
       </div>
 
+      <div class="panel pad" data-panel="sound">
+        <p class="hint">
+          <b>gesturecore-sound</b>, an optional brick: gestures trigger short synthesized sounds, and a hand
+          can play a sustained voice. The core works the same with this switched off. Browsers keep audio
+          silent until you ask, so sound starts with the button.
+        </p>
+        <div class="btns">
+          <button id="sndPower" class="primary">Turn sound on</button>
+          <span id="sndState" class="hint">off</span>
+        </div>
+        <div class="ctl"><label>volume</label><input type="range" id="sndVol" min="0" max="1" step="0.01" value="0.7" /><input type="number" id="sndVolN" min="0" max="1" step="0.01" value="0.7" /></div>
+        <label class="check"><input type="checkbox" id="sndTheremin" /> theremin — pinch with your right hand: height plays the notes, spreading the other fingers makes it louder, moving sideways changes the tone</label>
+        <fieldset>
+          <legend>Hear the sounds</legend>
+          <div class="btns" id="sndPalette"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Cues (JSON)</legend>
+          <p class="hint">One-shot sounds for gesture events. <code>on</code> is an event type; <code>hand</code>, <code>name</code> and <code>finger</code> narrow it; <code>pan</code> can be <code>"hand"</code>.</p>
+          <textarea id="sndCues" rows="10"></textarea>
+          <div class="btns">
+            <button id="sndCuesApply" class="primary">Apply cues</button>
+            <button id="sndCuesReset">Reset</button>
+          </div>
+          <div id="sndCuesMsg"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Controls (JSON)</legend>
+          <p class="hint">Hand measurements steering a voice while a condition holds. Controls with the same <code>voice</code> steer the same voice.</p>
+          <textarea id="sndControls" rows="8"></textarea>
+          <div class="btns">
+            <button id="sndControlsApply" class="primary">Apply controls</button>
+          </div>
+          <div id="sndControlsMsg"></div>
+        </fieldset>
+      </div>
+
       <div class="panel pad" data-panel="reliability">
         <fieldset>
           <legend>False activations per 10 minutes</legend>
@@ -1064,6 +1101,15 @@
           </ul>
           <p>It then replays your takes against the movement it just wrote and loosens it until every take would have fired, so a learnt movement always recognises the demonstrations it came from. The result is shown before anything is added: per-take scores, the axis comparison, and a warning when the axis was not clear-cut — that usually means a bigger, cleaner movement is needed.</p>
           <p>Nothing is trained and nothing leaves the machine. The fitted movement is ordinary JSON you can read, tune and share, exactly like one written by hand. The same fitting is part of the library (<code>fitMotion</code>, <code>fitPose</code>), so an app can offer "record your own gesture" without the bench.</p>
+          <h3>Sound</h3>
+          <p>The <b>gesturecore-sound</b> brick. It only listens to what the core produces, so the core behaves identically with it on or off. Browsers keep audio silent until you ask, so nothing sounds until you press <b>Turn sound on</b>.</p>
+          <ul>
+            <li><b>Cues</b> — short synthesized sounds for events: a rising tone on engage, a blip per pinch finger (each finger its own note), a click on release, a chime for poses, a swoosh for swipes. Edit them as JSON; <code>on</code> is the event type, and <code>hand</code>, <code>name</code> and <code>finger</code> narrow it.</li>
+            <li><b>Theremin</b> — while your right hand pinches, its height plays notes on a pentatonic scale (hard to make sound wrong), spreading the other fingers makes it louder, and moving sideways changes the tone.</li>
+            <li><b>Controls</b> — the general form of the theremin: any hand measurement steering pitch, volume or brightness while a condition holds.</li>
+            <li><b>Hear the sounds</b> — preview every built-in sound.</li>
+          </ul>
+          <p>Every sound is synthesized on the spot; there are no audio files. The decisions — which sound, which note, how loud — are made by pure code that is tested without audio, and only a thin layer talks to the Web Audio API.</p>
           <h3>Reliability</h3>
           <p>The definition-of-done measurement: fewer than 2 unintended activations per 10 minutes. Start a session, work normally for ten minutes, and press <kbd>F</kbd> whenever a pinch or movement fires that you did not mean. Finished sessions are listed underneath. This is a measurement of the core's defaults, not a feature.</p>
           <h3>Fixtures (test captures)</h3>

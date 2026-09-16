@@ -40,6 +40,16 @@ import {
   extractFeatures,
   matchPoses,
 } from 'gesturecore';
+import {
+  DEFAULT_CUES,
+  GestureSound,
+  THEREMIN,
+  midiToHz,
+  readerFor,
+  type ControlDescription,
+  type CueDescription,
+  type SoundName,
+} from 'gesturecore-sound';
 
 // ── tiny DOM helpers ─────────────────────────────────────────────────────────
 
@@ -61,6 +71,7 @@ const fmt = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '–');
 
 const LS = {
   config: 'gesturecore.bench.config.v1',
+  sound: 'gesturecore.bench.sound.v1',
   settings: 'gesturecore.bench.settings.v3',
   layout: 'gesturecore.bench.layout.v1',
   sessions: 'gesturecore.bench.sessions.v1',
@@ -378,6 +389,8 @@ function handleEvents(events: GestureEvent[]): void {
     else if (e.type === 'engage' || e.type === 'pose') backdrop.ripple(0.25);
     log(e);
   }
+  // every frame, even without events: sustained voices follow the hands
+  soundBrick.update(events);
 }
 
 function log(e: GestureEvent): void {
@@ -492,6 +505,133 @@ const session = (() => {
       if (!active) return;
       falses++;
       render();
+    },
+  };
+})();
+
+// ── sound brick ──────────────────────────────────────────────────────────────
+
+/**
+ * gesturecore-sound, wired in as an optional brick: it only ever reads what the core
+ * produced. With sound off it costs nothing — update() returns at once.
+ */
+const soundBrick = (() => {
+  type Saved = { volume?: number; cues?: CueDescription[]; controls?: ControlDescription[] };
+  const saved = load<Saved>(LS.sound) ?? {};
+  const sound = new GestureSound({
+    volume: saved.volume ?? 0.7,
+    cues: saved.cues ?? structuredClone(DEFAULT_CUES),
+    controls: saved.controls ?? [],
+  });
+  const read = readerFor(core);
+  const SOUNDS: SoundName[] = ['click', 'blip', 'chime', 'pluck', 'swoosh', 'thud', 'rise', 'fall'];
+  const persist = () => {
+    const c = sound.getConfig();
+    save(LS.sound, { volume: c.volume, cues: c.cues, controls: c.controls });
+  };
+
+  const power = $<HTMLButtonElement>('sndPower');
+  const showState = () => {
+    power.textContent = sound.running ? 'Turn sound off' : 'Turn sound on';
+    $('sndState').textContent = sound.running ? 'on' : 'off';
+  };
+  power.addEventListener('click', async () => {
+    power.disabled = true;
+    try {
+      if (sound.running) await sound.stop();
+      else await sound.start();
+    } finally {
+      power.disabled = false;
+      showState();
+    }
+  });
+
+  const vol = $<HTMLInputElement>('sndVol');
+  const volN = $<HTMLInputElement>('sndVolN');
+  vol.value = volN.value = String(sound.getConfig().volume);
+  bindPair('sndVol', 'sndVolN', (v) => {
+    sound.setConfig({ volume: v });
+    persist();
+  });
+
+  const isTheremin = (c: ControlDescription) => c.voice === 'theremin';
+  const theremin = $<HTMLInputElement>('sndTheremin');
+  theremin.addEventListener('change', () => {
+    const others = sound.getConfig().controls.filter((c) => !isTheremin(c));
+    sound.setConfig({ controls: theremin.checked ? [...others, ...structuredClone(THEREMIN)] : others });
+    persist();
+    refresh();
+  });
+
+  for (const name of SOUNDS) {
+    const b = el('button', { type: 'button', textContent: name });
+    b.addEventListener('click', async () => {
+      if (!sound.running) await sound.start();
+      showState();
+      sound.engine.apply([{ kind: 'play', sound: name, frequency: midiToHz(name === 'thud' ? 43 : 72), gain: 0.5, pan: 0 }]);
+    });
+    $('sndPalette').append(b);
+  }
+
+  const SOUND_SET = new Set<string>(SOUNDS);
+  const EVENT_TYPES = new Set(['engage', 'disengage', 'pinch:start', 'pinch:move', 'pinch:end', 'pose', 'motion', 'lost']);
+  const parseList = (id: string): unknown[] => {
+    const value = JSON.parse($<HTMLTextAreaElement>(id).value) as unknown;
+    if (!Array.isArray(value)) throw new Error('expected a JSON array');
+    return value;
+  };
+
+  $('sndCuesApply').addEventListener('click', () => {
+    try {
+      const cues = parseList('sndCues');
+      cues.forEach((c, i) => {
+        const d = c as Record<string, unknown>;
+        if (!EVENT_TYPES.has(String(d.on))) throw new Error(`cue ${i}: "on" must be an event type such as pinch:start`);
+        if (!SOUND_SET.has(String(d.sound))) throw new Error(`cue ${i}: "sound" must be one of ${SOUNDS.join(', ')}`);
+      });
+      sound.setConfig({ cues: cues as CueDescription[] });
+      persist();
+      flash('sndCuesMsg', `Applied ${cues.length} cues.`);
+    } catch (err) {
+      flash('sndCuesMsg', (err as Error).message, false);
+    }
+  });
+  $('sndCuesReset').addEventListener('click', () => {
+    sound.setConfig({ cues: structuredClone(DEFAULT_CUES) });
+    persist();
+    refresh();
+    flash('sndCuesMsg', 'Default cues restored.');
+  });
+  $('sndControlsApply').addEventListener('click', () => {
+    try {
+      const controls = parseList('sndControls');
+      controls.forEach((c, i) => {
+        const d = c as Record<string, unknown>;
+        if (typeof d.voice !== 'string' || !d.voice) throw new Error(`control ${i}: "voice" must be a name`);
+        if (d.hand !== 'Left' && d.hand !== 'Right') throw new Error(`control ${i}: "hand" must be Left or Right`);
+        if (!Array.isArray(d.range) || d.range.length !== 2) throw new Error(`control ${i}: "range" must be [from, to]`);
+      });
+      sound.setConfig({ controls: controls as ControlDescription[] });
+      persist();
+      refresh();
+      flash('sndControlsMsg', `Applied ${controls.length} controls.`);
+    } catch (err) {
+      flash('sndControlsMsg', (err as Error).message, false);
+    }
+  });
+
+  function refresh(): void {
+    const c = sound.getConfig();
+    $<HTMLTextAreaElement>('sndCues').value = JSON.stringify(c.cues, null, 2);
+    $<HTMLTextAreaElement>('sndControls').value = JSON.stringify(c.controls, null, 2);
+    theremin.checked = c.controls.some(isTheremin);
+  }
+  refresh();
+  showState();
+
+  return {
+    update(events: readonly GestureEvent[]): void {
+      sound.update(events, read);
     },
   };
 })();
@@ -1911,6 +2051,7 @@ const PANELS: { id: string; title: string }[] = [
   { id: 'tuning', title: 'Tuning' },
   { id: 'moves', title: 'Moves' },
   { id: 'gestures', title: 'Gestures' },
+  { id: 'sound', title: 'Sound' },
   { id: 'reliability', title: 'Reliability' },
   { id: 'fixtures', title: 'Fixtures' },
   { id: 'source', title: 'Source' },
@@ -1984,7 +2125,7 @@ function defaultLayout(): void {
   add('hand-right', { referencePanel: 'stage', direction: 'right' });
   add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
   add('tuning', { referencePanel: 'hand-right', direction: 'right' });
-  for (const id of ['moves', 'gestures', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
+  for (const id of ['moves', 'gestures', 'sound', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
     add(id, { referencePanel: 'tuning', direction: 'within' });
   }
   dock.getPanel('stage')?.api.group.api.setSize({ height: window.innerHeight * 0.62 });

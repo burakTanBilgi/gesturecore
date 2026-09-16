@@ -30,6 +30,22 @@ function dockviewCss(): Plugin {
   };
 }
 
+/**
+ * @mediapipe/tasks-vision 1.0.1 points at a source map it does not ship, so every
+ * start printed a scary ENOENT stack. Serve the bundle without that pointer.
+ */
+function quietMediapipeSourcemap(): Plugin {
+  return {
+    name: 'gesturecore-quiet-mediapipe-sourcemap',
+    enforce: 'pre',
+    load(id) {
+      const file = id.split('?')[0]!;
+      if (!/[\\/]@mediapipe[\\/]tasks-vision[\\/]vision_bundle\.mjs$/.test(file)) return undefined;
+      return readFileSync(file, 'utf8').replace(/\/\/# sourceMappingURL=\S+\s*$/, '');
+    },
+  };
+}
+
 /** Drops top-level rules whose selector names a bundled `.dockview-theme-*`. */
 function stripThemes(css: string): string {
   let out = '';
@@ -110,7 +126,7 @@ function saveFixtures(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [dockviewCss(), saveFixtures()],
+  plugins: [dockviewCss(), quietMediapipeSourcemap(), saveFixtures()],
   // The bench runs the packages from source, so edits show up without a build.
   resolve: {
     alias: [

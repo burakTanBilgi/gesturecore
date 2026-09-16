@@ -4,7 +4,7 @@ import type { Features, GestureEvent, HandLabel, HandState } from 'gesturecore';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CUES, THEREMIN, defaultSoundConfig } from '../src/defaults.js';
 import { midiToHz, snapToScale, toMidi } from '../src/notes.js';
-import { planCues, planSound, planVoices, readSource } from '../src/plan.js';
+import { planCues, planSound, planVoices, readSource, readerFor } from '../src/plan.js';
 import type { CueDescription, ReadHand, SoundAction } from '../src/types.js';
 
 function features(over: Partial<Features> = {}): Features {
@@ -149,6 +149,20 @@ describe('voices', () => {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('readerFor', () => {
+  it('reads the core live, so one reader can be reused every frame', () => {
+    let x = 0.2;
+    const core = {
+      getFeatures: () => features({ centroid: { x, y: 0.5 } }),
+      getHandState: () => state(),
+    };
+    const read = readerFor(core);
+    expect(read('Right').features!.centroid.x).toBe(0.2);
+    x = 0.8;
+    expect(read('Right').features!.centroid.x).toBe(0.8);
   });
 });
 

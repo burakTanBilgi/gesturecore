@@ -129,15 +129,13 @@ export function planSound(config: SoundConfig, events: readonly GestureEvent[], 
   return [...planCues(config.cues, events, read), ...planVoices(config.controls, read)];
 }
 
-/** Every hand, as the planner needs it. Convenience for callers holding a GestureCore. */
+/**
+ * Every hand, as the planner needs it, read live from a GestureCore. Safe to create
+ * once and reuse: each call reads the core's current state.
+ */
 export function readerFor(core: {
   getFeatures(hand: HandLabel): Features | null;
   getHandState(hand: HandLabel): ReturnType<ReadHand>['state'];
 }): ReadHand {
-  const cache = new Map<HandLabel, ReturnType<ReadHand>>();
-  return (hand) => {
-    let r = cache.get(hand);
-    if (!r) cache.set(hand, (r = { features: core.getFeatures(hand), state: core.getHandState(hand) }));
-    return r;
-  };
+  return (hand) => ({ features: core.getFeatures(hand), state: core.getHandState(hand) });
 }
