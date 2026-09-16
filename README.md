@@ -33,7 +33,7 @@ the mouse or draw a UI. Those belong in whatever app uses it.
 Not on npm yet:
 
 ```bash
-npm install github:tanburak/gesturecore
+npm install github:burakTanBilgi/gesturecore
 ```
 
 Requires Node 18+ for the build; the library itself is ESM with type definitions.
@@ -213,7 +213,7 @@ demand. Any source producing the same 21 points works.
 
 **While writing it**, the code, tests and documentation were produced with
 **Claude Opus 5** through Claude Code, directed, reviewed and hand-tested by
-[tanburak](https://github.com/tanburak); **Claude Haiku 4.5** was briefly active in one
+[burakTanBilgi](https://github.com/burakTanBilgi); **Claude Haiku 4.5** was briefly active in one
 session and wrote none of the code. Commits carry `Co-Authored-By` trailers naming
 the model that wrote them.
 
