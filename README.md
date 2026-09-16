@@ -193,8 +193,10 @@ npm run build       # dist/ ESM + .d.ts
 Early but working: 191 tests, no known bugs, API stable enough to build on. Honest
 limitations:
 
-- The test fixtures are **synthetic** (forward kinematics, not real captures). Real
-  ones can be recorded in the bench's Fixtures panel.
+- The test fixtures are **synthetic** (forward kinematics, not real captures) and
+  single-view. The bench records real ones from several angles and distances, and
+  `views.test.ts` requires every view to read as the same pose — landmark tracking is
+  weakest away from a square-on view, so that is where recognition really fails.
 - The smoothing default `beta = 0.007` comes from the One Euro paper's pixel-unit
   examples and is very conservative in normalised units; 5–20 behaves better. It has
   not yet been retuned against real hands.

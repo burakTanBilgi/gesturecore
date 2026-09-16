@@ -323,6 +323,7 @@ function processFrame(hands: Hand[], now: number): GestureEvent[] {
   poseRecorder.onFrame();
   draw();
   renderReadout();
+  moves.update();
   return events;
 }
 
@@ -935,6 +936,123 @@ function renderReadout(): void {
   }
 }
 
+// ── moves: what the core ships with, and what is happening right now ─────────
+
+const moves = (() => {
+  const list = $('movesList');
+  const HOW: Record<string, string> = {
+    openPalm: 'Hold your hand open, fingers straight, palm to the camera.',
+    fist: 'Close every finger into a fist.',
+    point: 'Extend the index finger, curl the rest.',
+    swipeLeft: 'Engaged and not pinching, sweep your hand left.',
+    swipeRight: 'Engaged and not pinching, sweep your hand right.',
+    wave: 'Hold an open palm and wave it side to side.',
+  };
+  const AXIS: Record<string, string> = { x: 'sideways', y: 'up or down', depth: 'toward or away from the camera', tilt: 'twisting the palm' };
+  const DIR: Record<string, [string, string]> = {
+    x: ['left', 'right'],
+    y: ['up', 'down'],
+    depth: ['away from the camera', 'toward the camera'],
+    tilt: ['anticlockwise', 'clockwise'],
+  };
+  const UNIT: Record<string, string> = { x: 'hand-lengths', y: 'hand-lengths', depth: '× size change', tilt: 'radians' };
+
+  type Row = { el: HTMLElement; live: HTMLElement; on: () => boolean };
+  let rows: Row[] = [];
+  let key = '';
+
+  const held = (name: string) => LABELS.some((l) => core.getHandState(l)?.pose === name);
+
+  function row(kind: string, name: string, how: string, num: string, on: () => boolean): Row {
+    const live = el('div', { className: 'live', textContent: 'idle' });
+    const box = el('div', { className: 'move' }, [
+      el('div', { className: 'top' }, [el('span', { className: 'nm', textContent: name }), el('span', { className: 'kind', textContent: kind }), live]),
+      el('p', { className: 'how', textContent: how }),
+      el('div', { className: 'num', textContent: num }),
+    ]);
+    return { el: box, live, on };
+  }
+
+  function build(): void {
+    const cfg = core.getConfig();
+    list.replaceChildren();
+    rows = [];
+    const add = (r: Row) => {
+      rows.push(r);
+      list.append(r.el);
+    };
+    const group = (text: string) => list.append(el('div', { className: 'movegroup', textContent: text }));
+
+    group('gate');
+    add(
+      row(
+        'engage',
+        cfg.engage.pose === '' ? 'always engaged' : cfg.engage.pose,
+        cfg.engage.pose === ''
+          ? 'The safety catch is off: hands can pinch and move straight away.'
+          : `Hold this pose to unlock pinches and movements for that hand. It stays unlocked until the hand leaves the frame.`,
+        cfg.engage.pose === '' ? '' : `held for ${cfg.engage.dwellMs} ms`,
+        () => LABELS.some((l) => core.getHandState(l)?.engaged),
+      ),
+    );
+
+    group('poses — hand shapes');
+    for (const p of cfg.poses) {
+      const ranges = Object.entries(p.fingers)
+        .map(([finger, spec]) => `${finger} ${spec?.curl ? `${spec.curl[0]}–${spec.curl[1]}` : '—'}`)
+        .join('   ');
+      add(row('pose', p.name, HOW[p.name] ?? 'Custom pose recorded from your hand.', `curl ${ranges}`, () => held(p.name)));
+    }
+
+    group('pinches — thumb to a fingertip');
+    for (const finger of cfg.pinch.fingers) {
+      add(
+        row(
+          'pinch',
+          `pinch ${finger}`,
+          `Engaged, touch your thumb tip to the ${finger} fingertip and hold.`,
+          `closes under ${fmt(cfg.pinch.closed + cfg.pinch.hysteresis, 2)}, releases over ${fmt(cfg.pinch.closed + 3 * cfg.pinch.hysteresis, 2)} spans, after ${cfg.dwellMs} ms`,
+          () => LABELS.some((l) => core.getHandState(l)?.pinched && core.getHandState(l)?.pinchFinger === finger),
+        ),
+      );
+    }
+
+    group('movements — how the hand travels');
+    for (const m of cfg.motions) {
+      const dirName = m.direction === -1 ? DIR[m.axis]![0] : DIR[m.axis]![1];
+      const how =
+        HOW[m.name] ??
+        (m.reversals
+          ? `Engaged, move ${AXIS[m.axis]} back and forth ${m.reversals + 1} times${m.pose ? ` while holding ${m.pose}` : ''}.`
+          : `Engaged and not pinching, move ${dirName}${m.pose ? ` while holding ${m.pose}` : ''}.`);
+      const num = `${m.distance} ${UNIT[m.axis]} per stroke, within ${m.withinMs} ms${m.reversals ? `, ${m.reversals} reversals` : ''}`;
+      add(
+        row('movement', m.name, how, num, () => {
+          const p = LABELS.map((l) => core.getHandState(l)?.motionProgress.find((x) => x.name === m.name)?.progress ?? 0);
+          return Math.max(...p) > 0.15;
+        }),
+      );
+    }
+  }
+
+  function update(): void {
+    if (!shows('moves')) return;
+    const cfg = core.getConfig();
+    const k = [cfg.engage.pose, ...cfg.poses.map((p) => p.name), ...cfg.pinch.fingers, ...cfg.motions.map((m) => m.name)].join('|');
+    if (k !== key) {
+      key = k;
+      build();
+    }
+    for (const r of rows) {
+      const on = r.on();
+      r.el.classList.toggle('on', on);
+      r.live.textContent = on ? 'now' : 'idle';
+    }
+  }
+
+  return { update };
+})();
+
 // ── tuning sliders ───────────────────────────────────────────────────────────
 
 type SliderSpec = {
@@ -1338,10 +1456,26 @@ const poseRecorder = (() => {
 
 // ── fixture capture ──────────────────────────────────────────────────────────
 
+/**
+ * A fixture is a set of views of one hand shape, not a single snapshot: hand
+ * tracking is least reliable away from a square-on view, so the tests replay every
+ * angle and require the same reading from all of them.
+ */
+const FIXTURE_VIEWS: { id: string; how: string }[] = [
+  { id: 'front', how: 'square on to the camera' },
+  { id: 'left', how: 'turned about 30° to your left' },
+  { id: 'right', how: 'turned about 30° to your right' },
+  { id: 'up', how: 'tilted so the fingers point up and away' },
+  { id: 'down', how: 'tilted so the fingers point down and toward you' },
+  { id: 'near', how: 'the same shape, close to the camera' },
+  { id: 'far', how: 'the same shape, at arm’s length' },
+];
+
 const capture = (() => {
-  let collecting: { hand: HandLabel; need: number; frames: Landmark[][] } | null = null;
+  let collecting: { hand: HandLabel; need: number; frames: Landmark[][]; view: string } | null = null;
   let countdown: number | undefined;
-  let captured: Landmark[] | null = null;
+  let queue: string[] = [];
+  const taken = new Map<string, Landmark[]>();
 
   const nameSel = $<HTMLSelectElement>('fxName');
   const fixtureName = () => (nameSel.value === 'custom' ? $<HTMLInputElement>('fxCustom').value.trim() : nameSel.value);
@@ -1351,29 +1485,56 @@ const capture = (() => {
   bindPair('fxFrames', 'fxFramesN');
   bindPair('fxDelay', 'fxDelayN');
 
-  function status(text: string) {
+  const status = (text: string): void => {
     $('fxStatus').textContent = text;
-  }
+  };
 
-  $('btnCapture').addEventListener('click', () => {
+  const rows = new Map<string, { row: HTMLElement; state: HTMLElement }>();
+  for (const v of FIXTURE_VIEWS) {
+    const state = el('div', { className: 'state', textContent: '—' });
+    const btn = el('button', { type: 'button', textContent: 'Capture' });
+    btn.addEventListener('click', () => start([v.id]));
+    const row = el('div', { className: 'view' }, [
+      el('div', { className: 'nm', textContent: v.id }),
+      el('div', { className: 'tip', textContent: v.how }),
+      el('div', {}, [state, btn]),
+    ]);
+    rows.set(v.id, { row, state });
+    $('fxViews').append(row);
+  }
+  // state and button share the last cell
+  for (const { row } of rows.values()) (row.lastElementChild as HTMLElement).style.cssText = 'display:flex;gap:6px;align-items:center';
+
+  function start(views: string[]): void {
     if (!running) return status('Start the camera first.');
     clearInterval(countdown);
+    queue = [...views];
+    next();
+  }
+
+  function next(): void {
+    const view = queue.shift();
+    if (view === undefined) {
+      collecting = null;
+      return status(`Done. ${taken.size} view(s) captured.`);
+    }
     const hand = $<HTMLSelectElement>('fxHand').value as HandLabel;
     const need = Number($<HTMLInputElement>('fxFrames').value);
+    const how = FIXTURE_VIEWS.find((v) => v.id === view)!.how;
     let left = Number($<HTMLInputElement>('fxDelay').value);
     const begin = () => {
-      collecting = { hand, need, frames: [] };
-      status(`Hold still… collecting ${need} frames of your ${hand} hand`);
+      collecting = { hand, need, frames: [], view };
+      status(`Hold still — "${view}": ${how}`);
     };
     if (left <= 0) return begin();
-    status(`Get into pose with your ${hand} hand… ${left}`);
+    status(`"${view}": hold your ${hand} hand ${how}… ${left}`);
     countdown = window.setInterval(() => {
       left--;
-      if (left > 0) return status(`Get into pose with your ${hand} hand… ${left}`);
+      if (left > 0) return status(`"${view}": hold your ${hand} hand ${how}… ${left}`);
       clearInterval(countdown);
       begin();
     }, 1000);
-  });
+  }
 
   function onFrame(hands: Hand[]): void {
     if (!collecting) return;
@@ -1381,17 +1542,18 @@ const capture = (() => {
     if (!h) return status(`Waiting for your ${collecting.hand} hand to be visible…`);
     collecting.frames.push(h.landmarks);
     if (collecting.frames.length < collecting.need) {
-      return status(`Collecting ${collecting.frames.length}/${collecting.need}…`);
+      return status(`"${collecting.view}": ${collecting.frames.length}/${collecting.need}…`);
     }
-    finish(collecting.frames);
+    finish(collecting.view, collecting.frames);
     collecting = null;
+    next();
   }
 
-  function finish(frames: Landmark[][]): void {
+  function finish(view: string, frames: Landmark[][]): void {
     const aspect = core.getConfig().aspect;
     const n = frames.length;
     const round = (v: number) => Number(v.toFixed(5));
-    captured = frames[0]!.map((_, i) => {
+    const mean = frames[0]!.map((_, i) => {
       let x = 0, y = 0, z = 0;
       for (const f of frames) {
         x += f[i]!.x;
@@ -1401,17 +1563,58 @@ const capture = (() => {
       // isotropic: fixtures are stored with aspect already applied
       return { x: round((x / n) * aspect), y: round(y / n), z: round((z / n) * aspect) };
     });
-    $<HTMLTextAreaElement>('fxJson').value = JSON.stringify(captured, null, 2);
-    const cfg = { ...core.getConfig(), aspect: 1 };
-    const f = extractFeatures(captured, cfg);
-    const scores = matchPoses(f, cfg.poses, cfg.poseFalloff)
-      .map((m) => `${m.name} ${fmt(m.score, 2)}`)
-      .join('  ');
-    $('fxPreview').textContent =
-      `pinchRaw ${fmt(f.pinchRaw)}  openness ${fmt(f.openness)}  curls [${f.curls.map((c) => fmt(c, 2)).join(', ')}]\n` +
-      `scores: ${scores}`;
-    status(`Captured ${n} frames. Check the preview, then save.`);
+    taken.set(view, mean);
+    render();
   }
+
+  /** Reading of one view, and whether it agrees with the others. */
+  function readOf(pts: Landmark[]): { pose: string; line: string } {
+    const cfg = { ...core.getConfig(), aspect: 1 };
+    const f = extractFeatures(pts, cfg);
+    const scores = matchPoses(f, cfg.poses, cfg.poseFalloff);
+    const best = [...scores].sort((a, b) => b.score - a.score)[0];
+    return {
+      pose: best?.name ?? '–',
+      line: `open ${fmt(f.openness, 2)} pinch ${fmt(f.pinchRaw, 2)} ${best ? `${best.name} ${fmt(best.score, 2)}` : ''}`,
+    };
+  }
+
+  function render(): void {
+    const reads = [...taken].map(([view, pts]) => ({ view, ...readOf(pts) }));
+    const agreed = reads.length > 0 ? reads[0]!.pose : '';
+    for (const v of FIXTURE_VIEWS) {
+      const row = rows.get(v.id)!;
+      const read = reads.find((r) => r.view === v.id);
+      row.row.className = `view${read ? (read.pose === agreed ? ' done' : ' warn') : ''}`;
+      row.state.textContent = read ? read.line : '—';
+      row.state.title = read && read.pose !== agreed ? `reads as ${read.pose}, but "front" reads as ${agreed}` : '';
+    }
+    const disagree = reads.filter((r) => r.pose !== agreed).map((r) => r.view);
+    $('fxPreview').textContent = reads.length
+      ? `${reads.length} view(s), all reading "${agreed}"${disagree.length ? ` except ${disagree.join(', ')} — tune before saving` : ''}`
+      : '';
+    $<HTMLTextAreaElement>('fxJson').value = reads.length
+      ? JSON.stringify(
+          {
+            name: fixtureName(),
+            hand: $<HTMLSelectElement>('fxHand').value,
+            views: [...taken].map(([view, landmarks]) => ({ view, landmarks })),
+          },
+          null,
+          2,
+        )
+      : '';
+  }
+
+  $('btnCaptureAll').addEventListener('click', () => start(FIXTURE_VIEWS.map((v) => v.id)));
+  $('btnFxClear').addEventListener('click', () => {
+    taken.clear();
+    queue = [];
+    collecting = null;
+    clearInterval(countdown);
+    status('');
+    render();
+  });
 
   $('btnFxSave').addEventListener('click', async () => {
     const name = fixtureName();
@@ -1419,7 +1622,7 @@ const capture = (() => {
     try {
       body = JSON.stringify(JSON.parse($<HTMLTextAreaElement>('fxJson').value));
     } catch {
-      return flash('fxMsg', 'The JSON box does not contain valid JSON.', false);
+      return flash('fxMsg', 'Capture at least one view first.', false);
     }
     if (!/^[a-z][a-z0-9-]{0,40}$/.test(name)) return flash('fxMsg', 'Name must be lowercase letters, digits or dashes.', false);
     const res = await fetch(`/__fixtures/${name}`, { method: 'POST', body });
@@ -1548,6 +1751,7 @@ const PANELS: { id: string; title: string }[] = [
   { id: 'hand-right', title: 'Hand · R' },
   { id: 'hand-left', title: 'Hand · L' },
   { id: 'tuning', title: 'Tuning' },
+  { id: 'moves', title: 'Moves' },
   { id: 'gestures', title: 'Gestures' },
   { id: 'reliability', title: 'Reliability' },
   { id: 'fixtures', title: 'Fixtures' },
@@ -1622,7 +1826,7 @@ function defaultLayout(): void {
   add('hand-right', { referencePanel: 'stage', direction: 'right' });
   add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
   add('tuning', { referencePanel: 'hand-right', direction: 'right' });
-  for (const id of ['gestures', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
+  for (const id of ['moves', 'gestures', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
     add(id, { referencePanel: 'tuning', direction: 'within' });
   }
   dock.getPanel('stage')?.api.group.api.setSize({ height: window.innerHeight * 0.62 });

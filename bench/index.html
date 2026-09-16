@@ -315,6 +315,27 @@
       .steps { margin: 6px 0; padding-left: 18px; }
       .steps li { margin: 3px 0; }
 
+      /* moves list */
+      .move { border: 1px solid var(--frame); border-radius: var(--r); padding: 5px 8px; margin-bottom: 5px; transition: box-shadow 0.4s ease, border-color 0.4s ease; }
+      .move:hover { border-color: rgba(140, 120, 255, 0.3); box-shadow: 0 0 16px var(--glow-surface); }
+      .move .top { display: flex; align-items: baseline; gap: 8px; }
+      .move .nm { color: var(--limit); letter-spacing: 0.06em; }
+      .move .kind { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+      .move .live { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--raw); }
+      .move.on { border-color: rgba(53, 224, 138, 0.45); }
+      .move.on .live { color: var(--active); }
+      .move .how { color: var(--text); margin: 2px 0 0; }
+      .move .num { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+      .movegroup { color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-size: 10px; margin: 10px 0 4px; }
+
+      /* fixture views */
+      .view { display: grid; grid-template-columns: 78px 1fr auto; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px solid rgba(104, 158, 172, 0.12); }
+      .view .nm { color: var(--text); }
+      .view .tip { color: var(--muted); font-size: 11px; }
+      .view .state { font-family: var(--mono); font-size: 11px; color: var(--raw); white-space: nowrap; }
+      .view.done .state { color: var(--active); }
+      .view.warn .state { color: var(--pending); }
+
       /* ── docs ─────────────────────────────────────────────────────────── */
       .docs { padding: 0; }
       .docs-body { max-width: 820px; padding: 10px 18px 60px; line-height: 1.55; }
@@ -629,24 +650,51 @@
         </fieldset>
       </div>
 
+      <div class="panel pad" data-panel="moves">
+        <p class="hint">Everything gesturecore ships with. All of it is plain data — edit or replace any of it in <b>Gestures</b>. A row lights up while that gesture is happening.</p>
+        <div id="movesList"></div>
+      </div>
+
       <div class="panel pad" data-panel="fixtures">
-        <p class="hint">Records a real hand into the test fixture format: 21 points averaged over several frames, stored isotropic (aspect already applied). Saving writes <code>test/fixtures/&lt;name&gt;.json</code>; run <code>npm test</code> afterwards.</p>
-        <div class="ctl"><label>fixture</label>
-          <select id="fxName"><option>open</option><option>fist</option><option>point</option><option>pinch</option><option value="custom">custom…</option></select><span></span></div>
-        <div class="ctl" id="fxCustomRow" hidden><label>custom name</label><input type="text" id="fxCustom" placeholder="e.g. thumbs-up" /><span></span></div>
-        <div class="ctl"><label>hand</label>
-          <select id="fxHand"><option>Right</option><option>Left</option></select><span></span></div>
-        <div class="ctl"><label>frames to average</label><input type="range" id="fxFrames" min="1" max="60" step="1" value="15" /><input type="number" id="fxFramesN" min="1" max="60" step="1" value="15" /></div>
-        <div class="ctl"><label>countdown (s)</label><input type="range" id="fxDelay" min="0" max="10" step="1" value="3" /><input type="number" id="fxDelayN" min="0" max="10" step="1" value="3" /></div>
-        <div class="btns"><button id="btnCapture" class="primary">Capture</button></div>
-        <div id="fxStatus" class="hint"></div>
-        <div id="fxPreview" class="mono hint"></div>
-        <textarea id="fxJson" rows="10" placeholder="Captured JSON appears here"></textarea>
-        <div class="btns">
-          <button id="btnFxSave">Save to test/fixtures</button>
-          <button id="btnFxCopy">Copy JSON</button>
-        </div>
-        <div id="fxMsg"></div>
+        <p class="hint">
+          Test captures: a recorded hand the automated tests replay, so a change in the maths shows up
+          as a failing test instead of a surprise. Saving writes <code>test/fixtures/&lt;name&gt;.json</code>;
+          run <code>npm test</code> afterwards.
+        </p>
+        <fieldset>
+          <legend>What to capture</legend>
+          <div class="ctl"><label>gesture</label>
+            <select id="fxName"><option>open</option><option>fist</option><option>point</option><option>pinch</option><option value="custom">custom…</option></select><span></span></div>
+          <div class="ctl" id="fxCustomRow" hidden><label>custom name</label><input type="text" id="fxCustom" placeholder="e.g. thumbs-up" /><span></span></div>
+          <div class="ctl"><label>hand</label>
+            <select id="fxHand"><option>Right</option><option>Left</option></select><span></span></div>
+          <div class="ctl"><label>frames to average</label><input type="range" id="fxFrames" min="1" max="60" step="1" value="15" /><input type="number" id="fxFramesN" min="1" max="60" step="1" value="15" /></div>
+          <div class="ctl"><label>countdown (s)</label><input type="range" id="fxDelay" min="0" max="10" step="1" value="3" /><input type="number" id="fxDelayN" min="0" max="10" step="1" value="3" /></div>
+        </fieldset>
+        <fieldset>
+          <legend>Views</legend>
+          <p class="hint">
+            One snapshot proves nothing: hand tracking is weakest away from a square-on view, so the same
+            shape is recorded from several angles and distances and the tests require all of them to read
+            the same. Capture what you can — every view you add tightens the test.
+          </p>
+          <div id="fxViews"></div>
+          <div class="btns">
+            <button id="btnCaptureAll" class="primary">Capture every view</button>
+            <button id="btnFxClear">Clear</button>
+          </div>
+          <div id="fxStatus" class="hint"></div>
+        </fieldset>
+        <fieldset>
+          <legend>Result</legend>
+          <div id="fxPreview" class="mono hint"></div>
+          <textarea id="fxJson" rows="8" placeholder="Captured JSON appears here"></textarea>
+          <div class="btns">
+            <button id="btnFxSave">Save to test/fixtures</button>
+            <button id="btnFxCopy">Copy JSON</button>
+          </div>
+          <div id="fxMsg"></div>
+        </fieldset>
       </div>
 
       <div class="panel pad" data-panel="source">
@@ -955,12 +1003,17 @@
             <tr><td>finger / thumb straight, bent</td><td>0.25 / 2.4, 0.2 / 1.4 rad</td><td>joint angles counted as curl 0 and curl 1. If your straight fingers read 0.2, raise <i>straight</i>; if a tight fist reads 0.6, lower <i>bent</i>.</td></tr>
             <tr><td>pose falloff</td><td>0.15</td><td>how fast a finger's score drops outside its range. Bigger = more forgiving poses.</td></tr>
           </table></div>
+          <h3>Moves</h3>
+          <p>The catalogue: every gesture the core currently knows — the engage gate, each pose, each pinch finger and each movement — with how to perform it and the numbers it is judged by. A row reads <b>now</b> while that gesture is happening, so it doubles as a cheat sheet you can practise against. It lists whatever is in the config, so gestures you add appear here too.</p>
           <h3>Gestures</h3>
           <p>Record a pose from your hand, build a movement with the form, or edit either list as JSON. A pose or movement whose name already exists is replaced. <b>Apply</b> checks the JSON and says exactly what is wrong if anything is.</p>
           <h3>Reliability</h3>
           <p>The definition-of-done measurement: fewer than 2 unintended activations per 10 minutes. Start a session, work normally for ten minutes, and press <kbd>F</kbd> whenever a pinch or movement fires that you did not mean. Finished sessions are listed underneath. This is a measurement of the core's defaults, not a feature.</p>
-          <h3>Fixtures</h3>
-          <p>For the automated tests. Pick a name and hand, press <b>Capture</b>, hold the pose. The 21 points are averaged over several frames, previewed with their feature values and pose scores, and <b>Save to test/fixtures</b> writes the file into the project. Then run <code>npm test</code>. The fixtures in the repository are synthetic placeholders, so capturing real ones is worthwhile.</p>
+          <h3>Fixtures (test captures)</h3>
+          <p>A fixture is a hand the automated tests replay, so a change in the maths shows up as a failing test rather than a surprise. It is <b>not</b> a picture and not a gesture definition — for the gestures themselves see <b>Moves</b>.</p>
+          <p>One snapshot is a weak test. Hand tracking is at its best square-on to the camera and degrades on angled and distant views, which is exactly where a gesture quietly stops being recognised. So a fixture holds <b>several views of the same shape</b> — front, turned left and right, tilted up and down, near and far — and the tests require every view to read as the same pose. Views you skip are simply not tested; each one you add tightens the net.</p>
+          <p>Press <b>Capture every view</b> and follow the prompts, or capture single views with their own buttons. Each view averages several frames. A view that disagrees with the others is flagged in amber before you save it — that disagreement is the finding, and usually means the pose's curl ranges are too tight rather than that the capture is bad. <b>Save to test/fixtures</b> writes the file; then run <code>npm test</code>.</p>
+          <p>The tests also check the same thing synthetically: each fixture is moved, resized, rotated and mirrored, and must still read as the same pose. That covers what maths can cover; real captures cover what it cannot, namely the tracker's own behaviour at awkward angles.</p>
           <h3>Source</h3>
           <p>Camera device and resolution (lower resolution can raise fps), GPU/CPU, and MediaPipe's own confidence thresholds: <i>detection</i> for finding a new hand, <i>presence</i> for deciding a tracked hand is still there, <i>tracking</i> for trusting frame-to-frame tracking. Raising them reduces phantom hands but drops real ones more often. The overlay toggles hide the raw skeleton, the smoothed skeleton or the image.</p>
 

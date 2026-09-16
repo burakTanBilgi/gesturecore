@@ -69,8 +69,8 @@ function saveFixtures(): Plugin {
         });
         req.on('end', () => {
           try {
-            const pts = JSON.parse(body) as unknown;
-            const ok =
+            const data = JSON.parse(body) as unknown;
+            const points = (pts: unknown) =>
               Array.isArray(pts) &&
               pts.length === 21 &&
               pts.every(
@@ -80,8 +80,23 @@ function saveFixtures(): Plugin {
                   Object.keys(p).sort().join() === 'x,y,z' &&
                   ['x', 'y', 'z'].every((k) => Number.isFinite((p as Record<string, unknown>)[k])),
               );
-            if (!ok) throw new Error('expected 21 {x,y,z} points');
-            writeFileSync(`${FIXTURES}${name}.json`, JSON.stringify(pts, null, 2) + '\n');
+            // Either the original bare 21 points, or a set of views of one shape.
+            const views = (d: unknown): boolean => {
+              if (typeof d !== 'object' || d === null || !Array.isArray((d as { views?: unknown }).views)) return false;
+              const list = (d as { views: unknown[] }).views;
+              return (
+                list.length > 0 &&
+                list.every(
+                  (v) =>
+                    typeof v === 'object' &&
+                    v !== null &&
+                    typeof (v as { view?: unknown }).view === 'string' &&
+                    points((v as { landmarks?: unknown }).landmarks),
+                )
+              );
+            };
+            if (!points(data) && !views(data)) throw new Error('expected 21 {x,y,z} points, or {views: [{view, landmarks}]}');
+            writeFileSync(`${FIXTURES}${name}.json`, JSON.stringify(data, null, 2) + '\n');
             res.end(`saved test/fixtures/${name}.json`);
           } catch (err) {
             res.statusCode = 400;

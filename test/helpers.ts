@@ -5,9 +5,31 @@ export type FixtureName = 'open' | 'fist' | 'point' | 'pinch';
 
 export const FIXTURE_NAMES: FixtureName[] = ['open', 'fist', 'point', 'pinch'];
 
-export function loadFixture(name: FixtureName): Landmark[] {
+/** One hand shape seen from one angle or distance. */
+export type FixtureView = { view: string; landmarks: Landmark[] };
+
+/**
+ * A fixture is either a bare 21-point array (the original one-view format) or a set
+ * of views of the same shape. Recognition has to survive every view, which is where
+ * landmark trackers are weakest.
+ */
+type FixtureFile = Landmark[] | { name?: string; hand?: HandLabel; views: FixtureView[] };
+
+function read(name: FixtureName): FixtureFile {
   const url = new URL(`./fixtures/${name}.json`, import.meta.url);
-  return JSON.parse(readFileSync(url, 'utf8')) as Landmark[];
+  return JSON.parse(readFileSync(url, 'utf8')) as FixtureFile;
+}
+
+/** Every view of a fixture; a one-view file reads as a single "front" view. */
+export function loadViews(name: FixtureName): FixtureView[] {
+  const file = read(name);
+  return Array.isArray(file) ? [{ view: 'front', landmarks: file }] : file.views;
+}
+
+/** The reference view — the front one when present, else the first. */
+export function loadFixture(name: FixtureName): Landmark[] {
+  const views = loadViews(name);
+  return (views.find((v) => v.view === 'front') ?? views[0]!).landmarks;
 }
 
 export function hand(landmarks: Landmark[], handedness: HandLabel = 'Right'): Hand {
