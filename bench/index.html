@@ -478,8 +478,7 @@
       .dv-single-tab .tabface { justify-content: center; }
       .dv-single-tab .tabface .label { flex: 0 1 auto; padding: 0 0 0 24px; }
       .dv-single-tab .tabface .x { position: relative; right: auto; top: auto; transform: none; flex: none; margin-left: 8px; }
-      /* like Chrome: the active tab always shows its ✕, others show it under the mouse */
-      .dv-tab.dv-active-tab .tabface .x { opacity: 0.35; }
+      /* a close button appears only while its own tab is under the mouse */
       .dv-tab:hover .tabface .x, .tabface .x:focus-visible { opacity: 0.6; }
       /* two strokes, drawn rather than an icon font, so they stay crisp at any size */
       .tabface .x::before, .tabface .x::after {
