@@ -472,6 +472,12 @@
         background: transparent; color: var(--muted); opacity: 0; cursor: pointer;
         transition: opacity 0.18s ease, color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
       }
+      /* A lone tab spans the whole strip, where an edge-pinned ✕ would drift far from
+         its label. There the ✕ sits right after the centred label instead; the
+         label's matching left padding keeps the text itself centred. */
+      .dv-single-tab .tabface { justify-content: center; }
+      .dv-single-tab .tabface .label { flex: 0 1 auto; padding: 0 0 0 24px; }
+      .dv-single-tab .tabface .x { position: relative; right: auto; top: auto; transform: none; flex: none; margin-left: 8px; }
       /* like Chrome: the active tab always shows its ✕, others show it under the mouse */
       .dv-tab.dv-active-tab .tabface .x { opacity: 0.35; }
       .dv-tab:hover .tabface .x, .tabface .x:focus-visible { opacity: 0.6; }
