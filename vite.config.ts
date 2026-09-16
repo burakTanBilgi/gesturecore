@@ -10,6 +10,18 @@ const require = createRequire(import.meta.url);
 const version = (JSON.parse(readFileSync(here('./packages/core/package.json'), 'utf8')) as { version: string }).version;
 
 /**
+ * The site-wide security headers live in vercel.json. `vite preview` serves the same
+ * ones, so a local production build is tested under the policy it will ship with.
+ */
+function siteHeaders(): Record<string, string> {
+  const cfg = JSON.parse(readFileSync(here('./vercel.json'), 'utf8')) as {
+    headers: { source: string; headers: { key: string; value: string }[] }[];
+  };
+  const all = cfg.headers.find((h) => h.source === '/(.*)')?.headers ?? [];
+  return Object.fromEntries(all.map((h) => [h.key, h.value]));
+}
+
+/**
  * Which build this is, shown in the bench header so a preview is never mistaken for
  * the real site. Vercel sets VERCEL_ENV and the branch name at build time.
  */
@@ -112,6 +124,19 @@ function saveFixtures(): Plugin {
           res.end('bad request');
           return;
         }
+        // This endpoint writes into the project, so only the bench itself may call it.
+        // Any other web page open in the same browser could otherwise post here: reject
+        // cross-site requests, and require a JSON content type, which a foreign page
+        // cannot send without a CORS preflight this server never grants.
+        const site = req.headers['sec-fetch-site'];
+        const origin = req.headers.origin;
+        const sameOrigin = origin === undefined || /^http:\/\/(127\.0\.0\.1|localhost):5173$/.test(origin);
+        const json = (req.headers['content-type'] ?? '').startsWith('application/json');
+        if ((site !== undefined && site !== 'same-origin') || !sameOrigin || !json) {
+          res.statusCode = 403;
+          res.end('forbidden');
+          return;
+        }
         let body = '';
         req.on('data', (chunk) => {
           body += chunk;
@@ -171,7 +196,7 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     rollupOptions: { input: { index: here('./index.html'), bench: here('./bench/index.html') } },
   },
-  preview: { host: '127.0.0.1', port: 4173, strictPort: true },
+  preview: { host: '127.0.0.1', port: 4173, strictPort: true, headers: siteHeaders() },
   // The bench runs the packages from source, so edits show up without a build.
   resolve: {
     alias: [

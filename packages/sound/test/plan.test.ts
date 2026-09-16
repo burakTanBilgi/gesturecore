@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import type { Features, GestureEvent, HandLabel, HandState } from 'gesturecore';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CUES, THEREMIN, defaultSoundConfig } from '../src/defaults.js';
+import type { SoundEngine } from '../src/engine.js';
+import { GestureSound } from '../src/index.js';
 import { midiToHz, snapToScale, toMidi } from '../src/notes.js';
 import { planCues, planSound, planVoices, readSource, readerFor } from '../src/plan.js';
 import type { CueDescription, ReadHand, SoundAction } from '../src/types.js';
@@ -178,6 +180,18 @@ describe('the whole plan', () => {
     const a = defaultSoundConfig();
     a.cues.length = 0;
     expect(defaultSoundConfig().cues.length).toBeGreaterThan(0);
+  });
+});
+
+describe('GestureSound config', () => {
+  const silent = { setVolume() {}, apply() {}, get running() { return false; } } as unknown as SoundEngine;
+
+  it('refuses an unreadable note up front, and keeps the old config', () => {
+    const sound = new GestureSound({}, silent);
+    const before = sound.getConfig();
+    expect(() => sound.setConfig({ cues: [{ on: 'engage', sound: 'blip', note: 'H9' }] })).toThrow(/not a note/);
+    expect(sound.getConfig()).toEqual(before);
+    expect(() => new GestureSound({ controls: [{ ...THEREMIN[0]!, root: 'nope' }] }, silent)).toThrow(/root/);
   });
 });
 

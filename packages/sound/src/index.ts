@@ -1,6 +1,7 @@
 import type { GestureEvent } from 'gesturecore';
 import { defaultSoundConfig } from './defaults.js';
 import { SoundEngine } from './engine.js';
+import { toMidi } from './notes.js';
 import { planSound } from './plan.js';
 import type { ReadHand, SoundConfig, SoundConfigPatch } from './types.js';
 
@@ -22,7 +23,7 @@ export class GestureSound {
     config: SoundConfigPatch = {},
     readonly engine: SoundEngine = new SoundEngine(),
   ) {
-    this.config = { ...defaultSoundConfig(), ...config };
+    this.config = checked({ ...defaultSoundConfig(), ...config });
     engine.setVolume(this.config.volume);
   }
 
@@ -48,10 +49,31 @@ export class GestureSound {
     return JSON.parse(JSON.stringify(this.config)) as SoundConfig;
   }
 
+  /** Throws on a note it cannot read, before anything changes — never mid-frame. */
   setConfig(patch: SoundConfigPatch): void {
-    this.config = { ...this.config, ...patch };
+    this.config = checked({ ...this.config, ...patch });
     if (patch.volume !== undefined) this.engine.setVolume(patch.volume);
   }
+}
+
+function checked(config: SoundConfig): SoundConfig {
+  config.cues.forEach((c, i) => {
+    if (c.note === undefined) return;
+    try {
+      toMidi(c.note);
+    } catch {
+      throw new Error(`cue ${i}: "${String(c.note)}" is not a note — use a MIDI number or a name like "C5"`);
+    }
+  });
+  config.controls.forEach((c, i) => {
+    if (c.root === undefined) return;
+    try {
+      toMidi(c.root);
+    } catch {
+      throw new Error(`control ${i}: root "${String(c.root)}" is not a note`);
+    }
+  });
+  return config;
 }
 
 export { SoundEngine } from './engine.js';

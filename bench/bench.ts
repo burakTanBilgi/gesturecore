@@ -525,11 +525,17 @@ const session = (() => {
 const soundBrick = (() => {
   type Saved = { volume?: number; cues?: CueDescription[]; controls?: ControlDescription[] };
   const saved = load<Saved>(LS.sound) ?? {};
-  const sound = new GestureSound({
-    volume: saved.volume ?? 0.7,
-    cues: saved.cues ?? structuredClone(DEFAULT_CUES),
-    controls: saved.controls ?? [],
-  });
+  let sound: GestureSound;
+  try {
+    sound = new GestureSound({
+      volume: saved.volume ?? 0.7,
+      cues: saved.cues ?? structuredClone(DEFAULT_CUES),
+      controls: saved.controls ?? [],
+    });
+  } catch {
+    // a saved config the brick now refuses: start clean rather than not at all
+    sound = new GestureSound();
+  }
   const read = readerFor(core);
   const SOUNDS: SoundName[] = ['click', 'blip', 'chime', 'pluck', 'swoosh', 'thud', 'rise', 'fall'];
   const persist = () => {
@@ -1930,7 +1936,7 @@ const capture = (() => {
       return flash('fxMsg', 'Capture at least one view first.', false);
     }
     if (!/^[a-z][a-z0-9-]{0,40}$/.test(name)) return flash('fxMsg', 'Name must be lowercase letters, digits or dashes.', false);
-    const res = await fetch(`/__fixtures/${name}`, { method: 'POST', body });
+    const res = await fetch(`/__fixtures/${name}`, { method: 'POST', body, headers: { 'Content-Type': 'application/json' } });
     flash('fxMsg', await res.text(), res.ok);
   });
   $('btnFxCopy').addEventListener('click', async () => {
@@ -2345,6 +2351,17 @@ const demo = (() => {
     },
   };
 })();
+
+// `?selftest` loads the hand model without a camera and records whether this browser
+// (and the site's security policy) let it run: <html data-selftest="ok | error: …">.
+if (new URLSearchParams(location.search).has('selftest')) {
+  const root = document.documentElement;
+  root.dataset.selftest = 'running';
+  createLandmarker().then(
+    () => (root.dataset.selftest = `ok ${$('stDelegate').textContent ?? ''}`.trim()),
+    (err: unknown) => (root.dataset.selftest = `error: ${String((err as Error)?.message ?? err)}`),
+  );
+}
 
 // `?panel=docs` (or any panel id) brings that panel forward on load.
 {
