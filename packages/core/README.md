@@ -2,6 +2,8 @@
 
 **Turns hand-tracking landmarks into clean gesture events.**
 
+![The gesturecore bench showing a pinch in progress](https://raw.githubusercontent.com/burakTanBilgi/gesturecore/main/docs/screenshots/bench.png)
+
 You give it 21 hand landmarks per frame and a timestamp. It gives you back
 `pinch:start`, `pose`, `motion` and friends — debounced, hysteresis-gated and
 scale-invariant, so a pinch is one event instead of forty frames of jitter.
@@ -30,13 +32,17 @@ the mouse or draw a UI. Those belong in whatever app uses it.
 
 ## Install
 
-Not on npm yet:
+Not on npm yet. Until it is, build a package from the repository and install that:
 
 ```bash
-npm install github:burakTanBilgi/gesturecore
+git clone https://github.com/burakTanBilgi/gesturecore
+cd gesturecore && npm install
+npm pack -w gesturecore          # writes gesturecore-0.1.0.tgz
+# then, in your project:
+npm install ../gesturecore/gesturecore-0.1.0.tgz
 ```
 
-Requires Node 18+ for the build; the library itself is ESM with type definitions.
+The library itself is ESM with type definitions; building it needs Node 22+.
 
 ## Quick start
 

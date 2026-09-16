@@ -215,6 +215,15 @@
         text-align: center; padding: 20px; color: var(--muted); pointer-events: none;
       }
       #stageMsg.error { color: var(--fault); }
+      #stageMsg a { pointer-events: auto; color: var(--limit); }
+
+      /* which build: interface colour, never a data colour */
+      .envbadge {
+        font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; padding: 1px 7px;
+        border: 1px solid rgba(140, 120, 255, 0.55); border-radius: 9px; color: #b9adff;
+        box-shadow: 0 0 10px rgba(140, 120, 255, 0.25);
+      }
+      .envbadge.live { border-color: var(--frame); color: var(--muted); box-shadow: none; letter-spacing: 0.06em; text-transform: none; }
       .key {
         display: flex; gap: 10px; flex-wrap: wrap; padding: 4px 8px; color: var(--muted);
         border-top: 1px solid rgba(104, 158, 172, 0.14); font-size: 11px; flex: none;
@@ -505,6 +514,7 @@
     <canvas id="bg" width="2" height="2" aria-hidden="true"></canvas>
     <header>
       <h1>gesturecore <span>bench</span></h1>
+      <span id="envBadge" class="envbadge"></span>
       <div class="stats">
         <span class="stat">cam <b id="stCamera" class="off">off</b></span>
         <span class="stat">delegate <b id="stDelegate" class="off">–</b></span>
@@ -535,7 +545,9 @@
         <div class="stagewrap">
           <canvas id="overlay" width="640" height="480"></canvas>
           <video id="video" playsinline muted></video>
-          <div id="stageMsg">Press <b>&nbsp;Start camera&nbsp;</b> and allow camera access.</div>
+          <div id="stageMsg">
+            <span>Press <b>Start camera</b> and allow camera access<br />— or <a href="?demo">watch a demo</a> with recorded hands.</span>
+          </div>
         </div>
         <div class="key">
           <span><i class="sw data"></i>measured</span>
@@ -772,6 +784,7 @@
             <button id="btnFxSave">Save to test/fixtures</button>
             <button id="btnFxCopy">Copy JSON</button>
           </div>
+          <p class="hint" id="fxSaveHint" hidden>Saving straight into the project needs the local dev server (<code>npm run bench</code>). Here, copy the JSON into <code>packages/core/test/fixtures/</code> yourself.</p>
           <div id="fxMsg"></div>
         </fieldset>
       </div>

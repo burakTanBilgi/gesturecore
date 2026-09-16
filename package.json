@@ -16,7 +16,12 @@
     "typecheck": "tsc -p packages/core && tsc -p packages/sound && tsc -p bench",
     "build": "npm run build --workspaces",
     "bench": "vite",
-    "fetch-model": "node scripts/fetch-model.mjs"
+    "fetch-model": "node scripts/fetch-model.mjs",
+    "build:site": "vite build",
+    "preview:site": "vite preview"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "devDependencies": {
     "@mediapipe/tasks-vision": "1.0.1",

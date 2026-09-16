@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "preserve",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "paths": {
       "gesturecore": ["../packages/core/src/index.ts"],
       "gesturecore-sound": ["../packages/sound/src/index.ts"]

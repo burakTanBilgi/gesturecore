@@ -3,6 +3,8 @@
 **Hand-tracking landmarks in, clean gesture events out — plus optional bricks that
 build on it.**
 
+![The gesturecore bench: a recorded hand pinching, with every measurement, timer and pose score live](docs/screenshots/bench.png)
+
 This repository is a small family of packages. The core stands alone; every other
 package is a *brick*: optional, independent, and something the core never knows about.
 
@@ -45,6 +47,15 @@ Full documentation: [packages/sound](packages/sound#readme).
 A tuning workbench for all of it: live camera, every measurement and timer, a slider
 for every constant, gesture recording by demonstration, test captures, and a sound
 panel. It is the reference adapter (camera → MediaPipe → core → bricks).
+
+No camera? Add `?demo` to the address and it replays recorded hands through the real
+pipeline.
+
+| Every gesture the core knows, lit while it happens | The hand-driven wave field, as its own panel |
+| --- | --- |
+| ![Moves panel](docs/screenshots/moves.png) | ![Field panel](docs/screenshots/field.png) |
+
+![The built-in docs panel](docs/screenshots/docs.png)
 
 ```bash
 npm install

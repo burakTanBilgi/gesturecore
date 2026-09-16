@@ -1,10 +1,43 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
-const FIXTURES = fileURLToPath(new URL('./packages/core/test/fixtures/', import.meta.url));
-const source = (pkg: string) => fileURLToPath(new URL(`./packages/${pkg}/src/index.ts`, import.meta.url));
+const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+const FIXTURES = here('./packages/core/test/fixtures/');
+const source = (pkg: string) => here(`./packages/${pkg}/src/index.ts`);
+const require = createRequire(import.meta.url);
+const version = (JSON.parse(readFileSync(here('./packages/core/package.json'), 'utf8')) as { version: string }).version;
+
+/**
+ * Which build this is, shown in the bench header so a preview is never mistaken for
+ * the real site. Vercel sets VERCEL_ENV and the branch name at build time.
+ */
+function benchEnv(command: 'serve' | 'build'): { env: string; ref: string } {
+  if (command === 'serve') return { env: 'development', ref: '' };
+  return { env: process.env.VERCEL_ENV ?? 'local', ref: process.env.VERCEL_GIT_COMMIT_REF ?? '' };
+}
+
+/**
+ * The built site hosts MediaPipe itself rather than leaning on a CDN: the WebAssembly
+ * runtime (the SIMD build and the fallback for older browsers) and the hand model.
+ * The dev server reads both straight from disk instead.
+ */
+function hostMediapipe(): Plugin {
+  const wasmDir = here('./node_modules/@mediapipe/tasks-vision/wasm/');
+  const model = here('./bench/models/hand_landmarker.task');
+  return {
+    name: 'gesturecore-host-mediapipe',
+    apply: 'build',
+    generateBundle() {
+      if (!existsSync(model)) this.error('bench/models/hand_landmarker.task is missing: run `npm run fetch-model` first');
+      for (const f of ['vision_wasm_internal.js', 'vision_wasm_internal.wasm', 'vision_wasm_nosimd_internal.js', 'vision_wasm_nosimd_internal.wasm']) {
+        this.emitFile({ type: 'asset', fileName: `mediapipe/wasm/${f}`, source: readFileSync(wasmDir + f) });
+      }
+      this.emitFile({ type: 'asset', fileName: 'bench/models/hand_landmarker.task', source: readFileSync(model) });
+    },
+  };
+}
 
 /**
  * dockview-core 8 ships its stylesheet only inside the UMD bundle (as an injected
@@ -125,8 +158,20 @@ function saveFixtures(): Plugin {
   };
 }
 
-export default defineConfig({
-  plugins: [dockviewCss(), quietMediapipeSourcemap(), saveFixtures()],
+export default defineConfig(({ command }) => ({
+  plugins: [dockviewCss(), quietMediapipeSourcemap(), saveFixtures(), hostMediapipe()],
+  define: {
+    __BENCH_ENV__: JSON.stringify(benchEnv(command).env),
+    __BENCH_REF__: JSON.stringify(benchEnv(command).ref),
+    __BENCH_VERSION__: JSON.stringify(version),
+  },
+  // The published site: the redirecting root page and the bench.
+  build: {
+    outDir: 'site',
+    emptyOutDir: true,
+    rollupOptions: { input: { index: here('./index.html'), bench: here('./bench/index.html') } },
+  },
+  preview: { host: '127.0.0.1', port: 4173, strictPort: true },
   // The bench runs the packages from source, so edits show up without a build.
   resolve: {
     alias: [
@@ -149,4 +194,4 @@ export default defineConfig({
     // the root page only forwards there.
     open: process.env.BENCH_NO_OPEN ? false : '/bench/',
   },
-});
+}));

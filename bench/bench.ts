@@ -5,6 +5,10 @@
  * localStorage. The core only ever sees `update(hands, t)`, `setConfig()` and reads.
  */
 import 'virtual:dockview.css';
+import fistFixture from '../packages/core/test/fixtures/fist.json';
+import openFixture from '../packages/core/test/fixtures/open.json';
+import pinchFixture from '../packages/core/test/fixtures/pinch.json';
+import pointFixture from '../packages/core/test/fixtures/point.json';
 import type { HandLandmarker, HandLandmarkerResult } from '@mediapipe/tasks-vision';
 import {
   createDockview,
@@ -215,7 +219,9 @@ async function createLandmarker(): Promise<void> {
   }
   sessionStorage.removeItem('gesturecore.reloaded');
   const { FilesetResolver, HandLandmarker } = vision;
-  const fileset = await FilesetResolver.forVisionTasks('/node_modules/@mediapipe/tasks-vision/wasm');
+  // The dev server reads the runtime from node_modules; a built site hosts its own copy.
+  const wasm = __BENCH_ENV__ === 'development' ? '/node_modules/@mediapipe/tasks-vision/wasm' : '/mediapipe/wasm';
+  const fileset = await FilesetResolver.forVisionTasks(wasm);
   const options = (delegate: 'GPU' | 'CPU') => ({
     baseOptions: { modelAssetPath: '/bench/models/hand_landmarker.task', delegate },
     runningMode: 'VIDEO' as const,
@@ -252,6 +258,7 @@ function toHands(res: HandLandmarkerResult): Hand[] {
 const TIP: Record<PinchFinger, number> = { index: 8, middle: 12, ring: 16, pinky: 20 };
 
 async function startCamera(): Promise<void> {
+  demo?.stop();
   const btn = $<HTMLButtonElement>('btnCamera');
   btn.disabled = true;
   btn.textContent = 'Starting…';
@@ -2120,16 +2127,19 @@ function defaultLayout(): void {
   dock.clear();
   const add = (id: string, position?: Parameters<DockviewApi['addPanel']>[0]['position']) =>
     dock.addPanel({ id, component: id, title: PANELS.find((p) => p.id === id)!.title, ...(position ? { position } : {}) });
+  // Columns first, then splits inside them, so every column runs full height:
+  // camera over events | right hand over left hand | tools.
   add('stage');
-  add('events', { referencePanel: 'stage', direction: 'below' });
   add('hand-right', { referencePanel: 'stage', direction: 'right' });
-  add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
   add('tuning', { referencePanel: 'hand-right', direction: 'right' });
+  add('events', { referencePanel: 'stage', direction: 'below' });
+  add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
   for (const id of ['moves', 'gestures', 'sound', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
     add(id, { referencePanel: 'tuning', direction: 'within' });
   }
-  dock.getPanel('stage')?.api.group.api.setSize({ height: window.innerHeight * 0.62 });
-  dock.getPanel('hand-right')?.api.group.api.setSize({ width: 300 });
+  const w = window.innerWidth;
+  dock.getPanel('stage')?.api.group.api.setSize({ width: Math.round(w * 0.36), height: Math.round(window.innerHeight * 0.64) });
+  dock.getPanel('hand-right')?.api.group.api.setSize({ width: Math.max(280, Math.round(w * 0.24)) });
   dock.getPanel('tuning')?.api.setActive();
 }
 
@@ -2259,6 +2269,88 @@ window.addEventListener('keyup', (e) => {
 buildSliders();
 renderReadout();
 draw();
+
+// ── which build is this ──────────────────────────────────────────────────────
+
+(() => {
+  const badge = $('envBadge');
+  const label: Record<string, string> = {
+    development: 'dev',
+    preview: `preview${__BENCH_REF__ ? ` · ${__BENCH_REF__}` : ''}`,
+    local: 'local build',
+    production: `v${__BENCH_VERSION__}`,
+  };
+  badge.textContent = label[__BENCH_ENV__] ?? __BENCH_ENV__;
+  badge.classList.toggle('live', __BENCH_ENV__ === 'production');
+  badge.title =
+    __BENCH_ENV__ === 'production'
+      ? 'The published bench.'
+      : 'Not the published bench: a development or preview build, which may differ from it.';
+  // Saving fixtures writes into the project, which only the dev server can do.
+  if (__BENCH_ENV__ !== 'development') {
+    $('btnFxSave').hidden = true;
+    $('fxSaveHint').hidden = false;
+  }
+})();
+
+// ── demo: recorded hands, for anyone without a camera ────────────────────────
+
+/**
+ * `?demo` replays a short loop of recorded hands — engage, pinch, swipe, point,
+ * fist, leave — through the real pipeline, so every panel shows what it does without
+ * a camera. It stops the moment the camera starts.
+ */
+const demo = (() => {
+  if (!new URLSearchParams(location.search).has('demo')) return null;
+  const aspect = 640 / 480;
+  applyConfig({ aspect });
+  const shapes = { open: openFixture, pinch: pinchFixture, point: pointFixture, fist: fistFixture } as Record<string, Landmark[]>;
+  // fixtures are stored isotropic; place each so its palm sits where the script says
+  const place = (pts: Landmark[], cx: number, cy: number): Landmark[] => {
+    const palm = [0, 5, 9, 13, 17].map((i) => pts[i]!);
+    const mx = palm.reduce((s, p) => s + p.x, 0) / palm.length / aspect;
+    const my = palm.reduce((s, p) => s + p.y, 0) / palm.length;
+    return pts.map((p) => ({ x: p.x / aspect - mx + cx, y: p.y - my + cy, z: p.z }));
+  };
+  type Step = { frames: number; shape: string | null; from: number; to: number };
+  const script: Step[] = [
+    { frames: 40, shape: 'open', from: 0.42, to: 0.42 }, // hold an open palm: engage
+    { frames: 26, shape: 'pinch', from: 0.42, to: 0.42 }, // pinch
+    { frames: 10, shape: 'open', from: 0.42, to: 0.42 }, // let go
+    { frames: 12, shape: 'open', from: 0.25, to: 0.8 }, // swipe right
+    { frames: 34, shape: 'point', from: 0.7, to: 0.6 }, // point
+    { frames: 34, shape: 'fist', from: 0.6, to: 0.52 }, // fist
+    { frames: 12, shape: null, from: 0, to: 0 }, // hand leaves
+  ];
+  let step = 0;
+  let frame = 0;
+  setMessage('');
+  $('keyMirror').textContent = 'demo: recorded hands, no camera';
+  const timer = window.setInterval(() => {
+    const s = script[step]!;
+    const k = s.frames > 1 ? frame / (s.frames - 1) : 0;
+    const hands: Hand[] = s.shape
+      ? [{ handedness: 'Right', score: 1, landmarks: place(shapes[s.shape]!, s.from + (s.to - s.from) * k, 0.6) }]
+      : [];
+    processFrame(hands, performance.now());
+    if (++frame >= s.frames) {
+      frame = 0;
+      step = (step + 1) % script.length;
+    }
+  }, 33);
+  return {
+    stop(): void {
+      clearInterval(timer);
+      $('keyMirror').textContent = settings.mirror ? 'view mirrored' : 'view not mirrored';
+    },
+  };
+})();
+
+// `?panel=docs` (or any panel id) brings that panel forward on load.
+{
+  const wanted = new URLSearchParams(location.search).get('panel');
+  if (wanted && PANELS.some((p) => p.id === wanted)) openPanel(wanted);
+}
 
 // Debug hook: drive the bench without a camera, e.g. from the devtools console.
 (window as unknown as { gesturecoreBench: object }).gesturecoreBench = {
