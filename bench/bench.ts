@@ -187,7 +187,22 @@ async function createLandmarker(): Promise<void> {
   landmarker?.close();
   landmarker = null;
   // Loaded on demand: opening the bench without starting the camera costs nothing.
-  const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
+  let vision: typeof import('@mediapipe/tasks-vision');
+  try {
+    vision = await import('@mediapipe/tasks-vision');
+  } catch (err) {
+    // The dev server re-bundled its dependencies since this page loaded; a reload
+    // picks up the new addresses. Only once, so a real failure still shows.
+    if (sessionStorage.getItem('gesturecore.reloaded') === null) {
+      sessionStorage.setItem('gesturecore.reloaded', '1');
+      setMessage('The bench was updated — reloading…');
+      location.reload();
+      await new Promise(() => {});
+    }
+    throw err;
+  }
+  sessionStorage.removeItem('gesturecore.reloaded');
+  const { FilesetResolver, HandLandmarker } = vision;
   const fileset = await FilesetResolver.forVisionTasks('/node_modules/@mediapipe/tasks-vision/wasm');
   const options = (delegate: 'GPU' | 'CPU') => ({
     baseOptions: { modelAssetPath: '/bench/models/hand_landmarker.task', delegate },
@@ -227,6 +242,7 @@ const TIP: Record<PinchFinger, number> = { index: 8, middle: 12, ring: 16, pinky
 async function startCamera(): Promise<void> {
   const btn = $<HTMLButtonElement>('btnCamera');
   btn.disabled = true;
+  btn.textContent = 'Starting…';
   try {
     setMessage('Loading hand model…');
     if (!landmarker) await createLandmarker();
@@ -270,6 +286,7 @@ async function startCamera(): Promise<void> {
 
 function stopCamera(): void {
   running = false;
+  paused = false;
   stream?.getTracks().forEach((t) => t.stop());
   stream = null;
   video.srcObject = null;
@@ -2072,19 +2089,29 @@ $('btnClearLog').addEventListener('click', () => {
   moveLines.clear();
 });
 
+const typing = (target: EventTarget | null) =>
+  target instanceof HTMLElement && target.matches('input[type="text"], input[type="number"], textarea, select');
+
+// Space pauses detection and R resets tracking — both only mean something while the
+// camera is running, so they do nothing before it.
 window.addEventListener('keydown', (e) => {
-  const target = e.target as HTMLElement;
-  if (target.matches('input[type="text"], input[type="number"], textarea, select')) return;
+  if (typing(e.target)) return;
   if (e.key === 'f' || e.key === 'F') session.markFalse();
+  if (!running) return;
   if (e.key === 'r' || e.key === 'R') {
     core.reset();
     smoothers.clear();
   }
   if (e.key === ' ') {
+    // Space would also press whichever button has focus, such as Stop camera.
     e.preventDefault();
+    if (e.repeat) return;
     paused = !paused;
     setMessage(paused ? 'Paused (Space to resume)' : '');
   }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === ' ' && running && !typing(e.target)) e.preventDefault();
 });
 
 buildSliders();
