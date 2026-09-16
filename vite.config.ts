@@ -110,5 +110,6 @@ function saveFixtures(): Plugin {
 
 export default defineConfig({
   plugins: [dockviewCss(), saveFixtures()],
-  server: { port: 5173, strictPort: true },
+  // `npm run bench` opens the bench itself; the root page only forwards there.
+  server: { port: 5173, strictPort: true, open: process.env.BENCH_NO_OPEN ? false : '/bench/' },
 });
