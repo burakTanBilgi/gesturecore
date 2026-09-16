@@ -2288,10 +2288,11 @@ draw();
   };
   badge.textContent = label[__BENCH_ENV__] ?? __BENCH_ENV__;
   badge.classList.toggle('live', __BENCH_ENV__ === 'production');
+  const versions = `bench v${__BENCH_VERSION__} · gesturecore ${__CORE_VERSION__} · gesturecore-sound ${__SOUND_VERSION__}`;
   badge.title =
     __BENCH_ENV__ === 'production'
-      ? 'The published bench.'
-      : 'Not the published bench: a development or preview build, which may differ from it.';
+      ? `The published bench.\n${versions}`
+      : `Not the published bench: a development or preview build, which may differ from it.\n${versions}`;
   // Saving fixtures writes into the project, which only the dev server can do.
   if (__BENCH_ENV__ !== 'development') {
     $('btnFxSave').hidden = true;

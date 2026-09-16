@@ -7,7 +7,13 @@ const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const FIXTURES = here('./packages/core/test/fixtures/');
 const source = (pkg: string) => here(`./packages/${pkg}/src/index.ts`);
 const require = createRequire(import.meta.url);
-const version = (JSON.parse(readFileSync(here('./packages/core/package.json'), 'utf8')) as { version: string }).version;
+/** Semver of the project (root) and of each package, for the bench's header badge. */
+const versionOf = (manifest: string) => (JSON.parse(readFileSync(here(manifest), 'utf8')) as { version: string }).version;
+const versions = {
+  project: versionOf('./package.json'),
+  core: versionOf('./packages/core/package.json'),
+  sound: versionOf('./packages/sound/package.json'),
+};
 
 /**
  * The site-wide security headers live in vercel.json. `vite preview` serves the same
@@ -188,7 +194,9 @@ export default defineConfig(({ command }) => ({
   define: {
     __BENCH_ENV__: JSON.stringify(benchEnv(command).env),
     __BENCH_REF__: JSON.stringify(benchEnv(command).ref),
-    __BENCH_VERSION__: JSON.stringify(version),
+    __BENCH_VERSION__: JSON.stringify(versions.project),
+    __CORE_VERSION__: JSON.stringify(versions.core),
+    __SOUND_VERSION__: JSON.stringify(versions.sound),
   },
   // The published site: the redirecting root page and the bench.
   build: {

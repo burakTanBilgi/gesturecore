@@ -20,7 +20,7 @@
   },
   "files": ["dist"],
   "peerDependencies": {
-    "gesturecore": "^0.1.0"
+    "gesturecore": "^0.2.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

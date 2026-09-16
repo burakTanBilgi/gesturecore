@@ -69,6 +69,12 @@ npm run bench           # opens http://127.0.0.1:5173/bench/
 
 The built-in **Docs** panel explains the whole system.
 
+## Versions
+
+[Semantic Versioning](https://semver.org/), recorded in [CHANGELOG.md](CHANGELOG.md). The
+project (bench and site) is tagged `vX.Y.Z`; each package carries its own version. Hover
+the bench's version badge to see all three.
+
 ## Branches and deployments
 
 - `main` is where development happens. Every push gets its own preview deployment.

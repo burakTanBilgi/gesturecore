@@ -37,9 +37,9 @@ Not on npm yet. Until it is, build a package from the repository and install tha
 ```bash
 git clone https://github.com/burakTanBilgi/gesturecore
 cd gesturecore && npm install
-npm pack -w gesturecore          # writes gesturecore-0.1.0.tgz
+npm pack -w gesturecore          # writes gesturecore-<version>.tgz
 # then, in your project:
-npm install ../gesturecore/gesturecore-0.1.0.tgz
+npm install ../gesturecore/gesturecore-0.2.0.tgz
 ```
 
 The library itself is ESM with type definitions; building it needs Node 22+.

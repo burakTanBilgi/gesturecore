@@ -1,5 +1,6 @@
 {
   "name": "gesturecore-workspace",
+  "version": "0.2.0",
   "private": true,
   "description": "gesturecore and its optional bricks, plus the tuning bench.",
   "repository": { "type": "git", "url": "git+https://github.com/burakTanBilgi/gesturecore.git" },

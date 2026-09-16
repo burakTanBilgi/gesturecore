@@ -462,6 +462,36 @@
         box-shadow: inset 0 -1px 0 rgba(128, 196, 212, 0.55);
       }
       .dockview-theme-fui .dv-tabs-and-actions-container { border-bottom: 1px solid rgba(104, 158, 172, 0.1); height: 28px; }
+      /* The ⌄ list of tabs that do not fit: dockview paints it with the group
+         background, which glass mode makes transparent. Give it the Panels menu's look. */
+      body .dv-tabs-overflow-container {
+        background: rgba(6, 14, 20, 0.96);
+        border: 1px solid var(--frame);
+        border-radius: var(--r);
+        padding: 4px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+      }
+      body .dv-tabs-overflow-container .dv-tab {
+        width: 100% !important;
+        flex: none !important;
+        height: 26px;
+        margin: 1px 0;
+        border: 0 !important;
+        border-radius: var(--r-sm);
+        background: transparent;
+        box-shadow: none;
+        color: var(--text);
+        transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+      }
+      /* each row opens a panel, so it answers like a button: quick cyan */
+      body .dv-tabs-overflow-container .dv-tab:hover {
+        color: var(--limit);
+        background: rgba(79, 209, 224, 0.08);
+        box-shadow: inset 0 0 0 1px var(--glow-action);
+        text-shadow: none;
+      }
+      body .dv-tabs-overflow-container .dv-active-tab { color: var(--limit); background: rgba(79, 209, 224, 0.05); }
+      body .dv-tabs-overflow-container .tabface .label { text-align: left; padding: 0 22px 0 8px; }
       /* no sideways scrollbar under the tabs: tabs that do not fit are in the ⌄ list */
       .dockview-theme-fui .dv-scrollable .dv-scrollbar { display: none; }
       .dockview-theme-fui .dv-tabs-container { scrollbar-width: none; }

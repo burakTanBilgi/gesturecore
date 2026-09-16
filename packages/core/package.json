@@ -1,6 +1,6 @@
 {
   "name": "gesturecore",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turns hand-tracking landmarks into clean, debounced gesture events. No dependencies, no browser APIs.",
   "keywords": ["gesture", "hand-tracking", "mediapipe", "hand-landmarks", "pinch", "one-euro-filter", "typescript"],
   "homepage": "https://github.com/burakTanBilgi/gesturecore/tree/main/packages/core#readme",
