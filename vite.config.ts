@@ -110,10 +110,11 @@ function saveFixtures(): Plugin {
 
 export default defineConfig({
   plugins: [dockviewCss(), saveFixtures()],
-  // MediaPipe is imported only when the camera starts. Bundle it at startup anyway:
-  // discovered late, Vite re-bundles and the address it already handed out goes stale
+  // The bench's only two libraries already ship as plain ES modules, so they are served
+  // as they are. Pre-bundling them gave each server run a new version tag, and a page
+  // that loaded before the rebuild finished asked for a tag that no longer existed
   // ("Failed to fetch dynamically imported module").
-  optimizeDeps: { include: ['@mediapipe/tasks-vision', 'dockview-core'] },
+  optimizeDeps: { noDiscovery: true, include: [], exclude: ['@mediapipe/tasks-vision', 'dockview-core'] },
   server: {
     // An explicit IPv4 address: plain `localhost` can bind to ::1 only, which some
     // browser setups never try. 127.0.0.1 still counts as secure for camera access.
