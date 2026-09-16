@@ -133,6 +133,33 @@ Defaults: poses `fist`, `openPalm`, `point`; movements `swipeLeft`, `swipeRight`
 `wave`. Replace them wholesale with `setConfig({ poses, motions })` — they are only
 defaults, not privileged.
 
+## Learning a gesture from a demonstration
+
+Writing those numbers by hand is guesswork. `fitPose` and `fitMotion` derive them from
+examples instead — a few-shot template fit in the spirit of the `$1`/`$P` recognizers,
+kept deterministic and readable. Nothing is trained, nothing leaves the machine, and the
+result is ordinary JSON you can inspect and edit.
+
+```ts
+import { fitMotion, fitPose } from 'gesturecore';
+
+// a hold of one shape — ideally seen from a few angles
+const { pose, ignored } = fitPose('thumbsUp', samples);   // samples: { curls }[]
+// fingers that wandered during the hold are left unconstrained, and reported in `ignored`
+
+// a few demonstrations of one movement
+const fit = fitMotion('swipeUp', takes);                  // takes: MotionSample[][]
+fit.motion;      // { axis: 'y', direction: -1, distance: 1.08, withinMs: 1100, … }
+fit.takes;       // 1 per take: the fit is verified against the demonstrations
+fit.margin;      // how clearly one axis won; under ~1.5 the gesture was ambiguous
+```
+
+`fitMotion` picks the axis that actually carried the movement (comparing axes in units
+of a typical movement on each), counts the strokes, sets a distance under the smallest
+demonstration and a time above the slowest, then replays the takes and loosens until all
+of them pass. `firesWithin` checks a fitted movement against a recording that was *not*
+the gesture, which is how you catch one that fires at rest.
+
 ## API
 
 | member | purpose |
@@ -143,6 +170,9 @@ defaults, not privileged.
 | `getHandState(hand)` | engaged, pinch finger, dwell progress, pose scores, movement progress |
 | `getConfig()` / `setConfig(patch)` | read or live-patch the configuration |
 | `reset()` | forget all hands and timers |
+| `fitPose(name, samples, opts?)` | write a pose from a recorded hold |
+| `fitMotion(name, takes, opts?)` | write a movement from recorded demonstrations |
+| `firesWithin(motion, samples)` | would this movement fire anywhere in this recording? |
 
 Everything is configurable: smoothing (`minCutoff`, `beta`, `dCutoff`), pinch
 (`closed`, `open`, `hysteresis`, `fingers`), `dwellMs`, `engage`, `lostAfterMs`, the

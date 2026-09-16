@@ -579,7 +579,29 @@
         </fieldset>
 
         <fieldset>
-          <legend>Build a movement</legend>
+          <legend>Record a movement</legend>
+          <p class="hint">
+            Show it instead of describing it. Perform the movement a few times; the bench watches which
+            way your hand actually travelled, how far and how long it took, and fits a movement that every
+            take would have fired — then checks that against the takes before offering it.
+          </p>
+          <div class="ctl"><label>name</label><input type="text" id="mvrName" placeholder="e.g. swipeUp" /><span></span></div>
+          <div class="ctl"><label>hand</label><select id="mvrHand"><option>Right</option><option>Left</option></select><span></span></div>
+          <div class="ctl"><label>while holding</label><select id="mvrPose"></select><span></span></div>
+          <div class="ctl"><label>takes</label><input type="range" id="mvrTakes" min="1" max="6" step="1" value="3" /><input type="number" id="mvrTakesN" min="1" max="6" step="1" value="3" /></div>
+          <div class="ctl"><label>seconds each</label><input type="range" id="mvrSecs" min="1" max="8" step="1" value="3" /><input type="number" id="mvrSecsN" min="1" max="8" step="1" value="3" /></div>
+          <div class="ctl"><label>countdown (s)</label><input type="range" id="mvrDelay" min="0" max="10" step="1" value="3" /><input type="number" id="mvrDelayN" min="0" max="10" step="1" value="3" /></div>
+          <div class="btns">
+            <button id="mvrRecord" class="primary">Record takes</button>
+            <button id="mvrAdd" disabled>Add movement</button>
+            <button id="mvrDiscard">Discard</button>
+          </div>
+          <div id="mvrStatus" class="hint"></div>
+          <div id="mvrResult" class="mono hint"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Build a movement by hand</legend>
           <div class="ctl"><label>name</label><input type="text" id="mvName" placeholder="e.g. swipeUp" /><span></span></div>
           <div class="ctl"><label>measure</label>
             <select id="mvAxis">
@@ -1012,7 +1034,22 @@
           <h3>Moves</h3>
           <p>The catalogue: every gesture the core currently knows — the engage gate, each pose, each pinch finger and each movement — with how to perform it and the numbers it is judged by. A row reads <b>now</b> while that gesture is happening, so it doubles as a cheat sheet you can practise against. It lists whatever is in the config, so gestures you add appear here too.</p>
           <h3>Gestures</h3>
-          <p>Record a pose from your hand, build a movement with the form, or edit either list as JSON. A pose or movement whose name already exists is replaced. <b>Apply</b> checks the JSON and says exactly what is wrong if anything is.</p>
+          <p>Four ways in, and all of them end as the same plain data. A pose or movement whose name already exists is replaced, and <b>Apply</b> on the JSON boxes says exactly what is wrong if anything is.</p>
+          <ul>
+            <li><b>Record a pose</b> — hold the shape. The spread of your curls over the hold sets the tolerance, and a finger that wandered is left unconstrained rather than pinned to a meaningless range. Tick <b>include thumb</b> whenever the thumb is what makes the shape different.</li>
+            <li><b>Record a movement</b> — perform it a few times instead of describing it. See below.</li>
+            <li><b>Build a movement by hand</b> — fill in the fields yourself.</li>
+            <li><b>JSON</b> — paste or edit either list directly.</li>
+          </ul>
+          <h3>Learning a movement by demonstration</h3>
+          <p>Describing a movement in numbers is guesswork; showing it is not. Give it a name, choose how many takes, and perform the movement. From those takes the bench works out:</p>
+          <ul>
+            <li><b>which axis carried it</b> — sideways, up/down, depth or twist — judged in units of a typical movement on each axis, so a big twist is not mistaken for a small drift;</li>
+            <li><b>how many strokes</b> it took, dropping the half-strokes at the start and end of the recording;</li>
+            <li><b>a distance</b> comfortably under your smallest demonstration, and <b>a time</b> comfortably longer than your slowest.</li>
+          </ul>
+          <p>It then replays your takes against the movement it just wrote and loosens it until every take would have fired, so a learnt movement always recognises the demonstrations it came from. The result is shown before anything is added: per-take scores, the axis comparison, and a warning when the axis was not clear-cut — that usually means a bigger, cleaner movement is needed.</p>
+          <p>Nothing is trained and nothing leaves the machine. The fitted movement is ordinary JSON you can read, tune and share, exactly like one written by hand. The same fitting is part of the library (<code>fitMotion</code>, <code>fitPose</code>), so an app can offer "record your own gesture" without the bench.</p>
           <h3>Reliability</h3>
           <p>The definition-of-done measurement: fewer than 2 unintended activations per 10 minutes. Start a session, work normally for ten minutes, and press <kbd>F</kbd> whenever a pinch or movement fires that you did not mean. Finished sessions are listed underneath. This is a measurement of the core's defaults, not a feature.</p>
           <h3>Fixtures (test captures)</h3>

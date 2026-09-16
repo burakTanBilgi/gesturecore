@@ -30,6 +30,10 @@ import {
   type MotionDescription,
   type PinchFinger,
   type PoseDescription,
+  type MotionFit,
+  type MotionSample,
+  fitMotion,
+  fitPose,
   PINCH_FINGERS,
 } from '../src/index';
 import { extractFeatures } from '../src/features/extract';
@@ -321,6 +325,7 @@ function processFrame(hands: Hand[], now: number): GestureEvent[] {
   handleEvents(events);
   capture.onFrame(hands);
   poseRecorder.onFrame();
+  motionRecorder.onFrame(coreTime(now));
   draw();
   renderReadout();
   moves.update();
@@ -1204,13 +1209,15 @@ function refreshAll(): void {
   const cfg = core.getConfig();
   $<HTMLTextAreaElement>('posesText').value = JSON.stringify(cfg.poses, null, 2);
   $<HTMLTextAreaElement>('motionsText').value = JSON.stringify(cfg.motions, null, 2);
-  const mvPose = $<HTMLSelectElement>('mvPose');
-  const keep = mvPose.value;
-  mvPose.replaceChildren(
-    el('option', { value: '', textContent: '(any hand shape)' }),
-    ...cfg.poses.map((p) => el('option', { value: p.name, textContent: p.name })),
-  );
-  mvPose.value = cfg.poses.some((p) => p.name === keep) ? keep : '';
+  for (const id of ['mvPose', 'mvrPose']) {
+    const sel = $<HTMLSelectElement>(id);
+    const keep = sel.value;
+    sel.replaceChildren(
+      el('option', { value: '', textContent: '(any hand shape)' }),
+      ...cfg.poses.map((p) => el('option', { value: p.name, textContent: p.name })),
+    );
+    sel.value = cfg.poses.some((p) => p.name === keep) ? keep : '';
+  }
 }
 
 function flash(target: string, text: string, ok = true): void {
@@ -1391,6 +1398,132 @@ $('btnMotionsReset').addEventListener('click', () => {
   });
 })();
 
+// ── movement recorder: learn a movement by watching it ───────────────────────
+
+const motionRecorder = (() => {
+  type Phase = { take: number; samples: MotionSample[] };
+  let phase: Phase | null = null;
+  let countdown: number | undefined;
+  let stopTake: number | undefined;
+  let fit: MotionFit | null = null;
+
+  bindPair('mvrTakes', 'mvrTakesN');
+  bindPair('mvrSecs', 'mvrSecsN');
+  bindPair('mvrDelay', 'mvrDelayN');
+
+  const status = (text: string): void => {
+    $('mvrStatus').textContent = text;
+  };
+  const num = (id: string) => Number($<HTMLInputElement>(id).value);
+  const takes: MotionSample[][] = [];
+
+  function begin(): void {
+    const name = $<HTMLInputElement>('mvrName').value.trim();
+    if (!name) return status('Give the movement a name first.');
+    clearInterval(countdown);
+    clearTimeout(stopTake);
+    phase = null;
+    takes.length = 0;
+    fit = null;
+    $<HTMLButtonElement>('mvrAdd').disabled = true;
+    $('mvrResult').textContent = '';
+    nextTake();
+  }
+
+  function nextTake(): void {
+    if (takes.length >= num('mvrTakes')) return finish();
+    const hand = $<HTMLSelectElement>('mvrHand').value;
+    let left = num('mvrDelay');
+    const go = () => {
+      phase = { take: takes.length, samples: [] };
+      status(`Take ${takes.length + 1} of ${num('mvrTakes')} — do it now with your ${hand} hand`);
+      // The clock ends the take, not the frames: a stalled camera must not hang it.
+      stopTake = window.setTimeout(endTake, num('mvrSecs') * 1000);
+    };
+    if (left <= 0) return go();
+    const tick = () => status(`Take ${takes.length + 1} of ${num('mvrTakes')} — ready… ${left}`);
+    tick();
+    countdown = window.setInterval(() => {
+      left--;
+      if (left > 0) return tick();
+      clearInterval(countdown);
+      go();
+    }, 1000);
+  }
+
+  /** Called every frame: collect what movements are judged on. */
+  function onFrame(t: number): void {
+    if (!phase) return;
+    const hand = $<HTMLSelectElement>('mvrHand').value as HandLabel;
+    const f = core.getFeatures(hand);
+    if (f) {
+      const aspect = core.getConfig().aspect;
+      phase.samples.push({
+        t,
+        x: f.centroid.x * (aspect > 0 ? aspect : 1),
+        y: f.centroid.y,
+        span: f.span,
+        tilt: f.tilt,
+        pose: core.getHandState(hand)?.pose ?? null,
+      });
+    }
+  }
+
+  function endTake(): void {
+    if (!phase) return;
+    const done = phase.samples;
+    phase = null;
+    if (done.length < 2) return status('That take saw no hand — press Record takes to try again.');
+    takes.push(done);
+    nextTake();
+  }
+
+  function finish(): void {
+    const name = $<HTMLInputElement>('mvrName').value.trim();
+    const pose = $<HTMLSelectElement>('mvrPose').value;
+    try {
+      fit = fitMotion(name, takes, pose ? { pose } : {});
+    } catch (err) {
+      return status((err as Error).message);
+    }
+    const m = fit.motion;
+    const shape = m.reversals ? `${m.reversals + 1} strokes back and forth` : `one stroke ${m.direction === -1 ? '−' : '+'}`;
+    const ambiguous = fit.margin < 1.5;
+    status(
+      `Learnt from ${takes.length} take(s): ${m.axis}, ${shape}, ${m.distance} per stroke within ${m.withinMs} ms.` +
+        (ambiguous ? ' The axis was not clear-cut — try a bigger, cleaner movement.' : ''),
+    );
+    $('mvrResult').textContent =
+      `takes ${fit.takes.map((s) => fmt(s, 2)).join(' ')}   axis ${Object.entries(fit.axisScores)
+        .map(([a, v]) => `${a} ${fmt(v, 2)}`)
+        .join(' ')}\n` + JSON.stringify(m);
+    $<HTMLButtonElement>('mvrAdd').disabled = false;
+  }
+
+  $('mvrRecord').addEventListener('click', begin);
+  $('mvrDiscard').addEventListener('click', () => {
+    clearInterval(countdown);
+    clearTimeout(stopTake);
+    phase = null;
+    takes.length = 0;
+    fit = null;
+    $<HTMLButtonElement>('mvrAdd').disabled = true;
+    status('');
+    $('mvrResult').textContent = '';
+  });
+  $('mvrAdd').addEventListener('click', () => {
+    if (!fit) return;
+    const motions = core.getConfig().motions.filter((m) => m.name !== fit!.motion.name);
+    motions.push(fit.motion);
+    applyConfig({ motions });
+    refreshAll();
+    status(`Added "${fit.motion.name}". Engage, then do it.`);
+    $<HTMLButtonElement>('mvrAdd').disabled = true;
+  });
+
+  return { onFrame };
+})();
+
 // ── pose recorder ────────────────────────────────────────────────────────────
 
 const poseRecorder = (() => {
@@ -1434,15 +1567,10 @@ const poseRecorder = (() => {
     collecting = null;
     const tol = Number($<HTMLInputElement>('grTol').value);
     const withThumb = $<HTMLInputElement>('grThumb').checked;
-    const r2 = (v: number) => Math.round(v * 100) / 100;
-    const fingers: PoseDescription['fingers'] = {};
-    FINGER_NAMES.forEach((finger, i) => {
-      if (i === 0 && !withThumb) return;
-      const mean = curls.reduce((s, c) => s + c[i]!, 0) / curls.length;
-      fingers[finger as keyof PoseDescription['fingers']] = {
-        curl: [r2(Math.max(0, mean - tol)), r2(Math.min(1, mean + tol))],
-      };
-    });
+    // The spread across the hold sets the range; a finger that wandered is left out.
+    const fitted = fitPose(name, curls.map((c) => ({ curls: c })), { margin: tol });
+    const fingers: PoseDescription['fingers'] = { ...fitted.pose.fingers };
+    if (!withThumb) delete fingers.thumb;
     const pose: PoseDescription = { name, fingers };
     const poses = core.getConfig().poses.filter((p) => p.name !== name);
     poses.push(pose);
