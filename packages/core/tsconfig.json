@@ -1,0 +1,6 @@
+{
+  // The core may not touch the browser: no DOM lib, no types. Any use of
+  // document/window/navigator/performance in src/ is a type error here.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src"]
+}

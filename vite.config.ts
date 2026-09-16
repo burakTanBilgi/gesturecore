@@ -3,7 +3,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
-const FIXTURES = fileURLToPath(new URL('./test/fixtures/', import.meta.url));
+const FIXTURES = fileURLToPath(new URL('./packages/core/test/fixtures/', import.meta.url));
+const source = (pkg: string) => fileURLToPath(new URL(`./packages/${pkg}/src/index.ts`, import.meta.url));
 
 /**
  * dockview-core 8 ships its stylesheet only inside the UMD bundle (as an injected
@@ -110,6 +111,13 @@ function saveFixtures(): Plugin {
 
 export default defineConfig({
   plugins: [dockviewCss(), saveFixtures()],
+  // The bench runs the packages from source, so edits show up without a build.
+  resolve: {
+    alias: [
+      { find: /^gesturecore$/, replacement: source('core') },
+      { find: /^gesturecore-sound$/, replacement: source('sound') },
+    ],
+  },
   // The bench's only two libraries already ship as plain ES modules, so they are served
   // as they are. Pre-bundling them gave each server run a new version tag, and a page
   // that loaded before the rebuild finished asked for a tag that no longer existed

@@ -1,31 +1,20 @@
 {
-  "name": "gesturecore",
-  "version": "0.1.0",
-  "description": "Turns MediaPipe hand landmarks into clean, debounced gesture events.",
-  "keywords": ["gesture", "hand-tracking", "mediapipe", "hand-landmarks", "pinch", "one-euro-filter", "typescript"],
-  "homepage": "https://github.com/burakTanBilgi/gesturecore#readme",
+  "name": "gesturecore-workspace",
+  "private": true,
+  "description": "gesturecore and its optional bricks, plus the tuning bench.",
   "repository": { "type": "git", "url": "git+https://github.com/burakTanBilgi/gesturecore.git" },
-  "bugs": { "url": "https://github.com/burakTanBilgi/gesturecore/issues" },
   "author": "tanburak",
+  "license": "MIT",
   "type": "module",
-  "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
+  "workspaces": [
+    "packages/core",
+    "packages/sound"
   ],
   "scripts": {
-    "prepare": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p bench/tsconfig.json --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p packages/core && tsc -p packages/sound && tsc -p bench",
+    "build": "npm run build --workspaces",
     "bench": "vite",
     "fetch-model": "node scripts/fetch-model.mjs"
   },
@@ -35,6 +24,5 @@
     "typescript": "7.0.2",
     "vite": "8.3.0",
     "vitest": "5.0.0"
-  },
-  "license": "MIT"
+  }
 }

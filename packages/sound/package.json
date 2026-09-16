@@ -1,0 +1,30 @@
+{
+  "name": "gesturecore-sound",
+  "version": "0.1.0",
+  "description": "Optional sound brick for gesturecore: synthesized cues for gesture events and hand-controlled voices.",
+  "keywords": ["gesturecore", "gesture", "web-audio", "sound", "music", "theremin"],
+  "homepage": "https://github.com/burakTanBilgi/gesturecore/tree/main/packages/sound#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/burakTanBilgi/gesturecore.git", "directory": "packages/sound" },
+  "bugs": { "url": "https://github.com/burakTanBilgi/gesturecore/issues" },
+  "author": "tanburak",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "peerDependencies": {
+    "gesturecore": "^0.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

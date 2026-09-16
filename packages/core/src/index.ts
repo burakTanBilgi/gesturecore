@@ -4,6 +4,10 @@ export { DEFAULT_POSES, FIST, OPEN_PALM, POINT } from './poses/defaults.js';
 export { PINCH_FINGERS } from './features/extract.js';
 export { DEFAULT_MOTIONS, SWIPE_LEFT, SWIPE_RIGHT, WAVE } from './motions/defaults.js';
 export { firesWithin, fitMotion, fitPose } from './learn/fit.js';
+export { extractFeatures } from './features/extract.js';
+export { LandmarkSmoother, OneEuroFilter } from './filter/oneEuro.js';
+export { bestPose, matchPoses, scorePose } from './poses/match.js';
+export { motionProgress } from './motions/detect.js';
 export type { MotionFit, MotionFitOptions, MotionTake, PoseFit, PoseFitOptions } from './learn/fit.js';
 export type { MotionSample } from './motions/detect.js';
 export type {

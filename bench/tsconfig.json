@@ -1,10 +1,15 @@
 {
-  // The bench is an adapter: it may use the DOM. The core config (../tsconfig.json) may not.
-  "extends": "../tsconfig.json",
+  // The bench is an adapter: it may use the DOM. The packages it imports are typed
+  // against their source, so it works without building them first.
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "preserve",
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "paths": {
+      "gesturecore": ["../packages/core/src/index.ts"],
+      "gesturecore-sound": ["../packages/sound/src/index.ts"]
+    }
   },
-  "include": ["./**/*.ts", "../src"]
+  "include": ["./**/*.ts"]
 }

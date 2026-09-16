@@ -35,10 +35,11 @@ import {
   fitMotion,
   fitPose,
   PINCH_FINGERS,
-} from '../src/index';
-import { extractFeatures } from '../src/features/extract';
-import { LandmarkSmoother } from '../src/filter/oneEuro';
-import { bestPose, matchPoses } from '../src/poses/match';
+  LandmarkSmoother,
+  bestPose,
+  extractFeatures,
+  matchPoses,
+} from 'gesturecore';
 
 // ── tiny DOM helpers ─────────────────────────────────────────────────────────
 

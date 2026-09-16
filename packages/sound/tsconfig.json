@@ -1,0 +1,10 @@
+{
+  // Only engine.ts needs the browser, for Web Audio. The rest is kept pure by a test.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    // Type against the core's source, so the workspace needs no build step first.
+    "paths": { "gesturecore": ["../core/src/index.ts"] }
+  },
+  "include": ["src"]
+}
