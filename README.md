@@ -198,7 +198,7 @@ MediaPipe → core) and the tool for tuning the constants against real hands.
 ```bash
 npm install
 npm run fetch-model     # downloads the MediaPipe hand model, 7.8 MB, not in git
-npm run bench           # http://localhost:5173/bench/
+npm run bench           # opens http://127.0.0.1:5173/bench/ (BROWSER=<path> picks the browser)
 ```
 
 It shows every feature, threshold and timer live, has a slider for every constant,

@@ -110,6 +110,14 @@ function saveFixtures(): Plugin {
 
 export default defineConfig({
   plugins: [dockviewCss(), saveFixtures()],
-  // `npm run bench` opens the bench itself; the root page only forwards there.
-  server: { port: 5173, strictPort: true, open: process.env.BENCH_NO_OPEN ? false : '/bench/' },
+  server: {
+    // An explicit IPv4 address: plain `localhost` can bind to ::1 only, which some
+    // browser setups never try. 127.0.0.1 still counts as secure for camera access.
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
+    // `npm run bench` opens the bench itself (set BROWSER to pick which browser);
+    // the root page only forwards there.
+    open: process.env.BENCH_NO_OPEN ? false : '/bench/',
+  },
 });
