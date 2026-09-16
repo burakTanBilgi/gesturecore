@@ -3,6 +3,10 @@
 **Hand-tracking landmarks in, clean gesture events out — plus optional bricks that
 build on it.**
 
+**Try it:** [gesturecore.vercel.app](https://gesturecore.vercel.app/bench/) with your camera, or
+[the demo](https://gesturecore.vercel.app/bench/?demo) with recorded hands. Nothing leaves your
+browser.
+
 ![The gesturecore bench: a recorded hand pinching, with every measurement, timer and pose score live](docs/screenshots/bench.png)
 
 This repository is a small family of packages. The core stands alone; every other
@@ -64,6 +68,15 @@ npm run bench           # opens http://127.0.0.1:5173/bench/
 ```
 
 The built-in **Docs** panel explains the whole system.
+
+## Branches and deployments
+
+- `main` is where development happens. Every push gets its own preview deployment.
+- `deploy` is what [gesturecore.vercel.app](https://gesturecore.vercel.app) is built from;
+  it moves forward only when a version is released.
+
+The bench's header badge says which one you are looking at: `dev` on your machine,
+`preview · <branch>` on a preview, the version number on the published site.
 
 ## Develop
 
