@@ -462,6 +462,10 @@
         box-shadow: inset 0 -1px 0 rgba(128, 196, 212, 0.55);
       }
       .dockview-theme-fui .dv-tabs-and-actions-container { border-bottom: 1px solid rgba(104, 158, 172, 0.1); height: 28px; }
+      /* no sideways scrollbar under the tabs: tabs that do not fit are in the ⌄ list */
+      .dockview-theme-fui .dv-scrollable .dv-scrollbar { display: none; }
+      .dockview-theme-fui .dv-tabs-container { scrollbar-width: none; }
+      .dockview-theme-fui .dv-tabs-container::-webkit-scrollbar { display: none; height: 0; }
       .dockview-theme-fui .dv-tabs-overflow-dropdown-default, .dockview-theme-fui .dv-tabs-overflow-container {
         border-radius: var(--dv-dropdown-border-radius);
       }
