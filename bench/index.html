@@ -456,16 +456,25 @@
       .dockview-theme-fui .dv-tabs-overflow-dropdown-default, .dockview-theme-fui .dv-tabs-overflow-container {
         border-radius: var(--dv-dropdown-border-radius);
       }
+      /* Chrome's rule: tabs sharing a strip are all the same width, so every close
+         button sits at the same spot. Close one and the next slides under the cursor
+         with its ✕ exactly where the last one was. A lone tab still spans its strip. */
+      .dockview-theme-fui .dv-tabs-and-actions-container:not(.dv-single-tab) .dv-tab {
+        flex: 0 0 128px;
+        width: 128px;
+      }
       /* our own tab: label centred in the whole tab, close button pinned right */
       .tabface { display: flex; align-items: center; height: 100%; width: 100%; position: relative; }
       .tabface .label { flex: 1 1 auto; text-align: center; padding: 0 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .tabface .x {
-        position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+        position: absolute; right: -4px; top: 50%; transform: translateY(-50%);
         width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%;
         background: transparent; color: var(--muted); opacity: 0; cursor: pointer;
         transition: opacity 0.18s ease, color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
       }
-      .dv-tab:hover .tabface .x, .tabface .x:focus-visible { opacity: 0.55; }
+      /* like Chrome: the active tab always shows its ✕, others show it under the mouse */
+      .dv-tab.dv-active-tab .tabface .x { opacity: 0.35; }
+      .dv-tab:hover .tabface .x, .tabface .x:focus-visible { opacity: 0.6; }
       /* two strokes, drawn rather than an icon font, so they stay crisp at any size */
       .tabface .x::before, .tabface .x::after {
         content: ''; position: absolute; left: 3.5px; top: 7.5px; width: 9px; height: 1px;
