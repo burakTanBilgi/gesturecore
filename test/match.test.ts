@@ -50,6 +50,52 @@ describe('scorePose', () => {
   });
 });
 
+describe('bestPose tie-breaking', () => {
+  const fist: PoseDescription = {
+    name: 'fist',
+    fingers: { index: { curl: [0.75, 1] }, middle: { curl: [0.75, 1] }, ring: { curl: [0.75, 1] }, pinky: { curl: [0.75, 1] } },
+  };
+  const thumbsUp: PoseDescription = {
+    name: 'thumbsUp',
+    fingers: {
+      thumb: { curl: [0, 0.3] },
+      index: { curl: [0.75, 1] },
+      middle: { curl: [0.75, 1] },
+      ring: { curl: [0.75, 1] },
+      pinky: { curl: [0.75, 1] },
+    },
+  };
+  // thumb straight, the rest curled: both poses score 1
+  const curls = [0.1, 0.9, 0.9, 0.9, 0.9];
+
+  it('prefers the pose that constrains more fingers', () => {
+    for (const poses of [
+      [fist, thumbsUp],
+      [thumbsUp, fist],
+    ]) {
+      expect(bestPose(matchPoses({ curls }, poses, 0.15), poses)?.name).toBe('thumbsUp');
+    }
+  });
+
+  it('prefers the narrower pose when the same fingers are constrained', () => {
+    const loose: PoseDescription = { name: 'loose', fingers: { index: { curl: [0, 1] }, middle: { curl: [0, 1] } } };
+    const tight: PoseDescription = { name: 'tight', fingers: { index: { curl: [0.05, 0.2] }, middle: { curl: [0.05, 0.2] } } };
+    const pts = [0, 0.1, 0.1, 0, 0];
+    for (const poses of [
+      [loose, tight],
+      [tight, loose],
+    ]) {
+      expect(bestPose(matchPoses({ curls: pts }, poses, 0.15), poses)?.name).toBe('tight');
+    }
+  });
+
+  it('still prefers a clearly higher score over a more specific pose', () => {
+    const poses = [thumbsUp, { name: 'open', fingers: { index: { curl: [0, 0.25] } } } as PoseDescription];
+    const open = [0.1, 0.1, 0.1, 0.1, 0.1];
+    expect(bestPose(matchPoses({ curls: open }, poses, 0.15), poses)?.name).toBe('open');
+  });
+});
+
 describe('default poses against fixtures', () => {
   it('fist scores >0.9 on fist and <0.3 on openPalm', () => {
     expect(score('fist', FIST)).toBeGreaterThan(0.9);

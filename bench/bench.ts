@@ -34,7 +34,7 @@ import {
 } from '../src/index';
 import { extractFeatures } from '../src/features/extract';
 import { LandmarkSmoother } from '../src/filter/oneEuro';
-import { matchPoses } from '../src/poses/match';
+import { bestPose, matchPoses } from '../src/poses/match';
 
 // ── tiny DOM helpers ─────────────────────────────────────────────────────────
 
@@ -1448,7 +1448,19 @@ const poseRecorder = (() => {
     poses.push(pose);
     applyConfig({ poses });
     refreshAll();
-    status(`Saved pose "${name}": ${Object.entries(fingers).map(([k, v]) => `${k} ${v.curl![0]}–${v.curl![1]}`).join(', ')}`);
+
+    // Saving is not the same as winning: say so if another pose still beats it.
+    const cfg = core.getConfig();
+    const mean = FINGER_NAMES.map((_, i) => curls.reduce((s, c) => s + c[i]!, 0) / curls.length);
+    const winner = bestPose(matchPoses({ curls: mean }, cfg.poses, cfg.poseFalloff), cfg.poses);
+    const ranges = Object.entries(fingers)
+      .map(([k, v]) => `${k} ${v.curl![0]}–${v.curl![1]}`)
+      .join(', ');
+    status(
+      winner?.name === name
+        ? `Saved "${name}": ${ranges}. Make the shape to fire it.`
+        : `Saved "${name}": ${ranges} — but "${winner?.name ?? 'no pose'}" still wins for this hand. Narrow the tolerance, or tick include thumb if the thumb is what makes it different.`,
+    );
   }
 
   return { onFrame };

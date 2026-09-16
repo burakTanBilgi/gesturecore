@@ -41,14 +41,56 @@ export function matchPoses(
 }
 
 /**
+ * How narrowly a pose is defined: how many fingers it pins down, and how tightly.
+ * A thumbs-up constrains the thumb as well as the fingers, so it is more specific
+ * than a fist, which says nothing about the thumb.
+ */
+function specificity(pose: PoseDescription | undefined): { fingers: number; width: number } {
+  let fingers = 0;
+  let width = 0;
+  for (const finger of FINGERS) {
+    const range = pose?.fingers[finger]?.curl;
+    if (!range) continue;
+    fingers++;
+    width += Math.abs(range[1] - range[0]);
+  }
+  return { fingers, width };
+}
+
+/**
  * The highest-scoring pose that reaches its own minScore, or null.
- * Ties go to the pose listed first. `matches` must be in the same order as `poses`.
+ *
+ * Equal scores go to the more specific pose — more fingers constrained, then
+ * narrower ranges — and only then to the one listed first. Without that, a pose
+ * that overlaps a broader one (a thumbs-up against a fist, or anything recorded
+ * from a hand that already matches a default) could never win.
+ *
+ * `matches` must be in the same order as `poses`.
  */
 export function bestPose(matches: readonly PoseMatch[], poses: readonly PoseDescription[]): PoseMatch | null {
   let best: PoseMatch | null = null;
+  let bestSpec = { fingers: 0, width: 0 };
   matches.forEach((m, i) => {
     const min = poses[i]?.minScore ?? DEFAULT_MIN_SCORE;
-    if (m.score >= min && (best === null || m.score > best.score)) best = m;
+    if (m.score < min) return;
+    if (best === null) {
+      best = m;
+      bestSpec = specificity(poses[i]);
+      return;
+    }
+    const diff = m.score - best.score;
+    if (diff > 1e-9) {
+      best = m;
+      bestSpec = specificity(poses[i]);
+      return;
+    }
+    if (diff < -1e-9) return;
+    const spec = specificity(poses[i]);
+    const better = spec.fingers !== bestSpec.fingers ? spec.fingers > bestSpec.fingers : spec.width < bestSpec.width - 1e-9;
+    if (better) {
+      best = m;
+      bestSpec = spec;
+    }
   });
   return best;
 }

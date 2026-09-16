@@ -315,17 +315,17 @@
       .steps { margin: 6px 0; padding-left: 18px; }
       .steps li { margin: 3px 0; }
 
-      /* moves list */
-      .move { border: 1px solid var(--frame); border-radius: var(--r); padding: 5px 8px; margin-bottom: 5px; transition: box-shadow 0.4s ease, border-color 0.4s ease; }
-      .move:hover { border-color: rgba(140, 120, 255, 0.3); box-shadow: 0 0 16px var(--glow-surface); }
-      .move .top { display: flex; align-items: baseline; gap: 8px; }
-      .move .nm { color: var(--limit); letter-spacing: 0.06em; }
-      .move .kind { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
-      .move .live { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--raw); }
-      .move.on { border-color: rgba(53, 224, 138, 0.45); }
-      .move.on .live { color: var(--active); }
-      .move .how { color: var(--text); margin: 2px 0 0; }
-      .move .num { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+      /* moves list — scoped, or these cards would style the log's .move spans */
+      #movesList .move { border: 1px solid var(--frame); border-radius: var(--r); padding: 5px 8px; margin-bottom: 5px; transition: box-shadow 0.4s ease, border-color 0.4s ease; }
+      #movesList .move:hover { border-color: rgba(140, 120, 255, 0.3); box-shadow: 0 0 16px var(--glow-surface); }
+      #movesList .top { display: flex; align-items: baseline; gap: 8px; }
+      #movesList .nm { color: var(--limit); letter-spacing: 0.06em; }
+      #movesList .kind { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+      #movesList .live { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--raw); }
+      #movesList .move.on { border-color: rgba(53, 224, 138, 0.45); }
+      #movesList .move.on .live { color: var(--active); }
+      #movesList .how { color: var(--text); margin: 2px 0 0; }
+      #movesList .num { color: var(--muted); font-family: var(--mono); font-size: 11px; }
       .movegroup { color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-size: 10px; margin: 10px 0 4px; }
 
       /* fixture views */
@@ -567,7 +567,8 @@
 
         <fieldset>
           <legend>Record a pose from your hand</legend>
-          <p class="hint">Hold the hand shape. The recorder averages each finger's curl and makes a pose that matches your curls ± the tolerance.</p>
+          <p class="hint">Hold the hand shape. The recorder averages each finger's curl and makes a pose that matches your curls ± the tolerance. A new pose appears in <b>Moves</b> straight away, and fires a <code>pose</code> event once it beats every other pose.</p>
+          <p class="hint">Tick <b>include thumb</b> for any shape the thumb defines — a thumbs-up is a fist to every other finger, so without the thumb it is scored as <code>fist</code> and never wins.</p>
           <div class="ctl"><label>name</label><input type="text" id="grName" placeholder="e.g. peace" /><span></span></div>
           <div class="ctl"><label>hand</label><select id="grHand"><option>Right</option><option>Left</option></select><span></span></div>
           <div class="ctl"><label>tolerance ±</label><input type="range" id="grTol" min="0.05" max="0.4" step="0.01" value="0.15" /><input type="number" id="grTolN" min="0.05" max="0.4" step="0.01" value="0.15" /></div>
@@ -660,6 +661,11 @@
           Test captures: a recorded hand the automated tests replay, so a change in the maths shows up
           as a failing test instead of a surprise. Saving writes <code>test/fixtures/&lt;name&gt;.json</code>;
           run <code>npm test</code> afterwards.
+        </p>
+        <p class="hint">
+          <b>This does not add a gesture.</b> To teach the bench a new hand shape so it fires events, use
+          <b>Gestures → Record a pose from your hand</b>. Capture it here as well only if you want the
+          tests to guard it.
         </p>
         <fieldset>
           <legend>What to capture</legend>
@@ -919,7 +925,7 @@
     "ring":   { "curl": [0.75, 1] }, "pinky":  { "curl": [0.75, 1] } } }</code></pre>
           <ul>
             <li><b>Score</b>: each listed finger scores 1 if its curl is inside the range, fading to 0 when it is <i>pose falloff</i> (0.15) outside. The pose score is the average, shown in the <b>≈ rows</b> of the hand panel.</li>
-            <li><b>Held pose</b>: the highest-scoring pose that reaches its <code>minScore</code> (default 0.8). Its name goes amber.</li>
+            <li><b>Held pose</b>: the highest-scoring pose that reaches its <code>minScore</code> (default 0.8). Its name goes amber. Equal scores go to the <b>more specific</b> pose — the one constraining more fingers, then the one with narrower ranges — so a thumbs-up beats a fist, which says nothing about the thumb.</li>
             <li><b>Event</b>: when the held pose stays the same for <i>dwellMs</i> (300 ms), one <code>pose</code> event fires and the name turns green. It fires again only after the pose changes.</li>
           </ul>
           <p>Built in: <code>fist</code>, <code>openPalm</code>, <code>point</code>. Make your own in <b>Gestures → Record a pose</b>, which reads your real finger curls over 15 frames and saves ranges of curl ± tolerance. A larger tolerance is more forgiving but may overlap other poses; include the thumb only when it matters, such as a thumbs-up.</p>
