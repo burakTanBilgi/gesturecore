@@ -5,14 +5,44 @@ All notable changes are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). Until 1.0.0, a new feature or a change in
 behaviour raises the minor version and a fix raises the patch version.
 
-There are three version numbers:
+There are four version numbers:
 
 - **the project** (root `package.json`, git tags `vX.Y.Z`): the bench and the site, shown
   in the bench's header badge;
 - **`gesturecore`** (`packages/core`);
-- **`gesturecore-sound`** (`packages/sound`).
+- **`gesturecore-sound`** (`packages/sound`);
+- **`gesturecore-head`** (`packages/head`).
 
 ## [Unreleased]
+
+To be released as project 0.3.0, a new feature. gesturecore 0.2.0 and gesturecore-sound
+0.1.0 are unchanged.
+
+### Added
+
+- **gesturecore-head** (new package, 0.1.0): a head and face reader built as a brick.
+  - Head yaw, pitch and roll come from a least-squares fit of MediaPipe's canonical face
+    to expression-free landmarks.
+  - Eye closure per anatomical eye comes from the eye aspect ratio.
+  - Brows, frown, mouth and smile come from blendshapes.
+  - Expressions are declarative held states, with dwell and hysteresis.
+  - Nods and shakes are found by the core's stroke detector.
+  - `calibrate()` sets a neutral pose; mirrored frames are handled.
+  - Pure, and tested on synthetic faces with exactly known angles.
+- Bench: a **Head** panel, off until switched on. It shows live angles, eyes and
+  expression levels, each expression's dwell and each movement's progress, a neutral
+  button and a JSON editor. The camera view draws the face outline and the direction the
+  head points, and the log shows head events.
+- Bench: `?demo&head` plays a synthetic face (nod, shake, tilt, blink, brow raise, turn).
+  `?head` switches the reader on at load. `?selftest` also loads the face model.
+- `npm run fetch-model` also fetches the MediaPipe face model (3.8 MB, pinned by
+  SHA-256), and the site hosts it.
+
+### Changed
+
+- Bench: the hand and face models share one MediaPipe runtime load.
+- Bench: numbers that round to zero no longer show as `-0`, and the log's hand column is
+  wide enough for "Right".
 
 ## [0.2.0] — 2026-09-17
 

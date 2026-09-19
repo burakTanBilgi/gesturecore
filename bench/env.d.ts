@@ -8,6 +8,7 @@ declare const __BENCH_REF__: string;
 declare const __BENCH_VERSION__: string;
 declare const __CORE_VERSION__: string;
 declare const __SOUND_VERSION__: string;
+declare const __HEAD_VERSION__: string;
 
 interface HTMLVideoElement {
   requestVideoFrameCallback(callback: (now: number) => void): number;

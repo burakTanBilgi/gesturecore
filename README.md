@@ -16,8 +16,9 @@ package is a *brick*: optional, independent, and something the core never knows 
 | --- | --- | --- |
 | [`gesturecore`](packages/core) | pinches, poses and movements from 21 hand landmarks; learning gestures from demonstrations | nothing |
 | [`gesturecore-sound`](packages/sound) | synthesized sound cues for gesture events, and hand-controlled voices such as a theremin | `gesturecore` types only |
+| [`gesturecore-head`](packages/head) | a head and face reader: turns, nods, shakes, blinks, winks, raised brows, mouth, smile | `gesturecore` (its filter and stroke detector) |
 
-Planned bricks: visuals that react to hands, and head/eyebrow tracking.
+Planned bricks: visuals that react to hands and faces.
 
 ## The core in one screen
 
@@ -46,24 +47,40 @@ sound.update(events, readerFor(core));
 
 Full documentation: [packages/sound](packages/sound#readme).
 
+## Reading the head
+
+```ts
+import { HeadReader, faceFromMediaPipe } from 'gesturecore-head';
+
+const head = new HeadReader({ aspect: 640 / 480 });
+for (const e of head.update(faceFromMediaPipe(faceResult), t)) {
+  if (e.type === 'motion' && e.name === 'nod') confirm();
+}
+```
+
+Full documentation: [packages/head](packages/head#readme).
+
 ## The bench
 
 A tuning workbench for all of it: live camera, every measurement and timer, a slider
-for every constant, gesture recording by demonstration, test captures, and a sound
-panel. It is the reference adapter (camera → MediaPipe → core → bricks).
+for every constant, gesture recording by demonstration, test captures, a sound panel
+and a head panel. It is the reference adapter (camera → MediaPipe → core → bricks).
 
 No camera? Add `?demo` to the address and it replays recorded hands through the real
-pipeline.
+pipeline; [`?demo&head`](https://gesturecore.vercel.app/bench/?demo&head&panel=head) adds a
+synthetic face that nods, shakes, tilts, blinks and raises its brows.
 
 | Every gesture the core knows, lit while it happens | The hand-driven wave field, as its own panel |
 | --- | --- |
 | ![Moves panel](docs/screenshots/moves.png) | ![Field panel](docs/screenshots/field.png) |
 
+![The Head panel: the demo face tilting right, with its angles, eyes, expression timers and the log](docs/screenshots/head.png)
+
 ![The built-in docs panel](docs/screenshots/docs.png)
 
 ```bash
 npm install
-npm run fetch-model     # MediaPipe hand model, 7.8 MB, not in git
+npm run fetch-model     # MediaPipe hand and face models, 7.8 + 3.8 MB, not in git
 npm run bench           # opens http://127.0.0.1:5173/bench/
 ```
 
@@ -73,7 +90,7 @@ The built-in **Docs** panel explains the whole system.
 
 [Semantic Versioning](https://semver.org/), recorded in [CHANGELOG.md](CHANGELOG.md). The
 project (bench and site) is tagged `vX.Y.Z`; each package carries its own version. Hover
-the bench's version badge to see all three.
+the bench's version badge to see them all.
 
 ## Branches and deployments
 
@@ -97,8 +114,9 @@ other's source directly, so nothing needs building while you work.
 
 ## AI models
 
-At runtime the packages use none — gestures and sounds are geometry and synthesis. The
-bench feeds the core from Google's **MediaPipe Hand Landmarker** (Apache-2.0).
+At runtime the packages use none — gestures, head readings and sounds are geometry and
+synthesis. The bench feeds the core from Google's **MediaPipe Hand Landmarker**, and the
+head reader from the **MediaPipe Face Landmarker** (both Apache-2.0).
 
 The code, tests and documentation were written with **Claude Opus 5** through Claude
 Code, directed, reviewed and hand-tested by [burakTanBilgi](https://github.com/burakTanBilgi);

@@ -9,12 +9,13 @@
   "type": "module",
   "workspaces": [
     "packages/core",
-    "packages/sound"
+    "packages/sound",
+    "packages/head"
   ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p packages/core && tsc -p packages/sound && tsc -p bench",
+    "typecheck": "tsc -p packages/core && tsc -p packages/sound && tsc -p packages/head && tsc -p bench",
     "build": "npm run build --workspaces",
     "bench": "vite",
     "fetch-model": "node scripts/fetch-model.mjs",

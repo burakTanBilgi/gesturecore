@@ -9,7 +9,8 @@
     "resolveJsonModule": true,
     "paths": {
       "gesturecore": ["../packages/core/src/index.ts"],
-      "gesturecore-sound": ["../packages/sound/src/index.ts"]
+      "gesturecore-sound": ["../packages/sound/src/index.ts"],
+      "gesturecore-head": ["../packages/head/src/index.ts"]
     }
   },
   "include": ["./**/*.ts"]

@@ -13,6 +13,7 @@ const versions = {
   project: versionOf('./package.json'),
   core: versionOf('./packages/core/package.json'),
   sound: versionOf('./packages/sound/package.json'),
+  head: versionOf('./packages/head/package.json'),
 };
 
 /**
@@ -38,21 +39,24 @@ function benchEnv(command: 'serve' | 'build'): { env: string; ref: string } {
 
 /**
  * The built site hosts MediaPipe itself rather than leaning on a CDN: the WebAssembly
- * runtime (the SIMD build and the fallback for older browsers) and the hand model.
- * The dev server reads both straight from disk instead.
+ * runtime (the SIMD build and the fallback for older browsers), the hand model and
+ * the face model. The dev server reads them straight from disk instead.
  */
 function hostMediapipe(): Plugin {
   const wasmDir = here('./node_modules/@mediapipe/tasks-vision/wasm/');
-  const model = here('./bench/models/hand_landmarker.task');
+  const models = ['hand_landmarker.task', 'face_landmarker.task'];
   return {
     name: 'gesturecore-host-mediapipe',
     apply: 'build',
     generateBundle() {
-      if (!existsSync(model)) this.error('bench/models/hand_landmarker.task is missing: run `npm run fetch-model` first');
       for (const f of ['vision_wasm_internal.js', 'vision_wasm_internal.wasm', 'vision_wasm_nosimd_internal.js', 'vision_wasm_nosimd_internal.wasm']) {
         this.emitFile({ type: 'asset', fileName: `mediapipe/wasm/${f}`, source: readFileSync(wasmDir + f) });
       }
-      this.emitFile({ type: 'asset', fileName: 'bench/models/hand_landmarker.task', source: readFileSync(model) });
+      for (const m of models) {
+        const file = here(`./bench/models/${m}`);
+        if (!existsSync(file)) this.error(`bench/models/${m} is missing: run \`npm run fetch-model\` first`);
+        this.emitFile({ type: 'asset', fileName: `bench/models/${m}`, source: readFileSync(file) });
+      }
     },
   };
 }
@@ -197,6 +201,7 @@ export default defineConfig(({ command }) => ({
     __BENCH_VERSION__: JSON.stringify(versions.project),
     __CORE_VERSION__: JSON.stringify(versions.core),
     __SOUND_VERSION__: JSON.stringify(versions.sound),
+    __HEAD_VERSION__: JSON.stringify(versions.head),
   },
   // The published site: the redirecting root page and the bench.
   build: {
@@ -210,6 +215,7 @@ export default defineConfig(({ command }) => ({
     alias: [
       { find: /^gesturecore$/, replacement: source('core') },
       { find: /^gesturecore-sound$/, replacement: source('sound') },
+      { find: /^gesturecore-head$/, replacement: source('head') },
     ],
   },
   // The bench's only two libraries already ship as plain ES modules, so they are served

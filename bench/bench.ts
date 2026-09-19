@@ -9,7 +9,8 @@ import fistFixture from '../packages/core/test/fixtures/fist.json';
 import openFixture from '../packages/core/test/fixtures/open.json';
 import pinchFixture from '../packages/core/test/fixtures/pinch.json';
 import pointFixture from '../packages/core/test/fixtures/point.json';
-import type { HandLandmarker, HandLandmarkerResult } from '@mediapipe/tasks-vision';
+import canonicalFace from '../packages/head/test/fixtures/canonical-face.json';
+import type { FaceLandmarker, HandLandmarker, HandLandmarkerResult } from '@mediapipe/tasks-vision';
 import {
   createDockview,
   type DockviewApi,
@@ -54,6 +55,19 @@ import {
   type CueDescription,
   type SoundName,
 } from 'gesturecore-sound';
+import {
+  EYES,
+  HeadReader,
+  defaultHeadConfig,
+  faceFromMediaPipe,
+  fromAngles,
+  headRotation,
+  type Face,
+  type HeadEvent,
+  type HeadReaderConfig,
+  type HeadReaderConfigPatch,
+  type Neutral,
+} from 'gesturecore-head';
 
 // ── tiny DOM helpers ─────────────────────────────────────────────────────────
 
@@ -69,13 +83,14 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-const fmt = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d) : '–');
+const fmt = (v: number, d = 3) => (Number.isFinite(v) ? v.toFixed(d).replace(/^-(0\.?0*)$/, '$1') : '–');
 
 // ── persistence (bench only; the core never touches storage) ─────────────────
 
 const LS = {
   config: 'gesturecore.bench.config.v1',
   sound: 'gesturecore.bench.sound.v1',
+  head: 'gesturecore.bench.head.v1',
   settings: 'gesturecore.bench.settings.v3',
   layout: 'gesturecore.bench.layout.v1',
   sessions: 'gesturecore.bench.sessions.v1',
@@ -199,29 +214,47 @@ function setMessage(text: string, isError = false): void {
 
 // ── MediaPipe source adapter ─────────────────────────────────────────────────
 
+type Vision = typeof import('@mediapipe/tasks-vision');
+type Fileset = Awaited<ReturnType<Vision['FilesetResolver']['forVisionTasks']>>;
+let visionLoad: Promise<{ vision: Vision; fileset: Fileset }> | null = null;
+
+/**
+ * MediaPipe's module and its WebAssembly runtime, loaded on demand (opening the bench
+ * without starting the camera costs nothing) and shared by the hand and face models.
+ */
+function loadVision(): Promise<{ vision: Vision; fileset: Fileset }> {
+  visionLoad ??= (async () => {
+    let vision: Vision;
+    try {
+      vision = await import('@mediapipe/tasks-vision');
+    } catch (err) {
+      // The dev server re-bundled its dependencies since this page loaded; a reload
+      // picks up the new addresses. Only once, so a real failure still shows.
+      if (sessionStorage.getItem('gesturecore.reloaded') === null) {
+        sessionStorage.setItem('gesturecore.reloaded', '1');
+        setMessage('The bench was updated — reloading…');
+        location.reload();
+        await new Promise(() => {});
+      }
+      throw err;
+    }
+    sessionStorage.removeItem('gesturecore.reloaded');
+    // The dev server reads the runtime from node_modules; a built site hosts its own copy.
+    const wasm = __BENCH_ENV__ === 'development' ? '/node_modules/@mediapipe/tasks-vision/wasm' : '/mediapipe/wasm';
+    return { vision, fileset: await vision.FilesetResolver.forVisionTasks(wasm) };
+  })();
+  // a failed load may be retried
+  visionLoad.catch(() => (visionLoad = null));
+  return visionLoad;
+}
+
 async function createLandmarker(): Promise<void> {
   landmarker?.close();
   landmarker = null;
-  // Loaded on demand: opening the bench without starting the camera costs nothing.
-  let vision: typeof import('@mediapipe/tasks-vision');
-  try {
-    vision = await import('@mediapipe/tasks-vision');
-  } catch (err) {
-    // The dev server re-bundled its dependencies since this page loaded; a reload
-    // picks up the new addresses. Only once, so a real failure still shows.
-    if (sessionStorage.getItem('gesturecore.reloaded') === null) {
-      sessionStorage.setItem('gesturecore.reloaded', '1');
-      setMessage('The bench was updated — reloading…');
-      location.reload();
-      await new Promise(() => {});
-    }
-    throw err;
-  }
-  sessionStorage.removeItem('gesturecore.reloaded');
-  const { FilesetResolver, HandLandmarker } = vision;
-  // The dev server reads the runtime from node_modules; a built site hosts its own copy.
-  const wasm = __BENCH_ENV__ === 'development' ? '/node_modules/@mediapipe/tasks-vision/wasm' : '/mediapipe/wasm';
-  const fileset = await FilesetResolver.forVisionTasks(wasm);
+  const {
+    vision: { HandLandmarker },
+    fileset,
+  } = await loadVision();
   const options = (delegate: 'GPU' | 'CPU') => ({
     baseOptions: { modelAssetPath: '/bench/models/hand_landmarker.task', delegate },
     runningMode: 'VIDEO' as const,
@@ -286,6 +319,7 @@ async function startCamera(): Promise<void> {
     setMessage('');
     running = true;
     btn.textContent = 'Stop camera';
+    void headBrick.cameraStarted();
     await listDevices();
     video.requestVideoFrameCallback(onVideoFrame);
   } catch (err) {
@@ -313,6 +347,7 @@ function stopCamera(): void {
   setStat('stCamera', 'off', 'off');
   // Let the core see the hands disappear so lost events fire and state clears.
   handleEvents(core.update([], coreTime(performance.now() + core.getConfig().lostAfterMs + 1)));
+  headBrick.cameraStopped();
   lastHands = [];
   lastSmoothed.clear();
   draw();
@@ -336,6 +371,8 @@ function onVideoFrame(): void {
     const now = performance.now();
     const res = landmarker.detectForVideo(video, now);
     perf.detectMs = perf.detectMs * 0.9 + (performance.now() - now) * 0.1;
+    // the face first, so this frame's drawing has both
+    headBrick.detect(video, now);
     processFrame(toHands(res), now);
   }
   const t = performance.now();
@@ -649,6 +686,369 @@ const soundBrick = (() => {
   };
 })();
 
+// ── head reader brick ────────────────────────────────────────────────────────
+
+/**
+ * gesturecore-head, wired in as an optional brick: it reads the face in the same camera
+ * frames with MediaPipe's Face Landmarker, and the hands never know. It is off until
+ * switched on — the face model (3.8 MB) is fetched then, and costs nothing before.
+ */
+const headBrick = (() => {
+  type Saved = { config?: HeadReaderConfigPatch; neutral?: Partial<Neutral> };
+  const saved = load<Saved>(LS.head) ?? {};
+  let reader: HeadReader;
+  try {
+    reader = new HeadReader(saved.config ?? {});
+  } catch {
+    // a saved config the brick now refuses: start clean rather than not at all
+    reader = new HeadReader();
+  }
+  if (saved.neutral) reader.setNeutral(saved.neutral);
+
+  /** What the panel lets you edit: everything but the frame's shape, which the camera decides. */
+  const editable = (c: HeadReaderConfig) => {
+    const { aspect: _a, mirrored: _m, ...rest } = c;
+    return rest;
+  };
+  const persist = () => save(LS.head, { config: editable(reader.getConfig()), neutral: reader.getNeutral() });
+
+  let faceLandmarker: FaceLandmarker | null = null;
+  let on = false;
+  let lastT = 0;
+  let aspect = 0;
+  /** `?demo` feeds a synthetic face until the camera starts, so no model is needed. */
+  let demoFaces = new URLSearchParams(location.search).has('demo');
+  /** The latest face as the tracker reported it (unmirrored), for the overlay. */
+  let lastFace: Face | null = null;
+
+  const power = $<HTMLButtonElement>('headPower');
+  const status = (text: string) => ($('headState').textContent = text);
+  const showState = () => {
+    power.textContent = on ? 'Turn head reader off' : 'Turn head reader on';
+    if (!on) status('off');
+    else if (demoFaces) status('on · demo face');
+    else if (!running) status('on · start the camera');
+    else status(reader.getState().found ? 'on · face in view' : 'on · no face');
+  };
+
+  async function createFaceLandmarker(): Promise<void> {
+    const {
+      vision: { FaceLandmarker },
+      fileset,
+    } = await loadVision();
+    const options = (delegate: 'GPU' | 'CPU') => ({
+      baseOptions: { modelAssetPath: '/bench/models/face_landmarker.task', delegate },
+      runningMode: 'VIDEO' as const,
+      numFaces: 1,
+      // brows, frown, mouth and smile come from these scores
+      outputFaceBlendshapes: true,
+    });
+    try {
+      faceLandmarker = await FaceLandmarker.createFromOptions(fileset, options(settings.delegate));
+    } catch (err) {
+      if (settings.delegate === 'CPU') throw err;
+      console.warn('GPU delegate failed for the face model, falling back to CPU', err);
+      faceLandmarker = await FaceLandmarker.createFromOptions(fileset, options('CPU'));
+    }
+  }
+
+  power.addEventListener('click', async () => {
+    if (on) {
+      on = false;
+      feed(null, performance.now() + reader.getConfig().lostAfterMs + 1);
+      showState();
+      return;
+    }
+    power.disabled = true;
+    try {
+      if (!demoFaces && !faceLandmarker) {
+        status('loading the face model…');
+        await createFaceLandmarker();
+      }
+      on = true;
+    } catch (err) {
+      console.error(err);
+      status(`could not load the face model: ${String((err as Error).message ?? err)}`);
+      power.disabled = false;
+      return;
+    }
+    power.disabled = false;
+    showState();
+  });
+
+  // ── the panel's readout ──
+  const rows = el('div', { className: 'rows' });
+  const badges = { face: el('span', { className: 'badge', textContent: 'face' }), expr: el('span', { className: 'badge', textContent: '–' }) };
+  const card = el('div', { className: 'hand head absent' }, [
+    el('h2', {}, [el('span', { className: 'name', textContent: 'Face' }), badges.face, badges.expr]),
+    rows,
+  ]);
+  $('headCard').append(card);
+  const ANGLE_SPAN = 60; // the angle bars run ±60°
+  const angleRows = { yaw: makeRow(rows, 'yaw', '', 0, true), pitch: makeRow(rows, 'pitch', '', 0, true), roll: makeRow(rows, 'roll', '', 0, true) };
+  const LEVELS = [
+    ['blinkLeft', 'blink L'],
+    ['blinkRight', 'blink R'],
+    ['brows', 'brows'],
+    ['frown', 'frown'],
+    ['mouthOpen', 'mouth'],
+    ['smile', 'smile'],
+  ] as const;
+  const levelRows = LEVELS.map(([key, label]) => ({ key, ref: makeRow(rows, label) }));
+  const exprRows = el('div');
+  const motionRows = el('div');
+  rows.append(el('div', { className: 'sep' }), exprRows, el('div', { className: 'sep' }), motionRows);
+  let exprKey = '';
+  let exprRefs: RowRefs[] = [];
+  let motionKey = '';
+  let motionRefs: RowRefs[] = [];
+
+  function render(): void {
+    if (!shows('head')) return;
+    const r = reader.getReadings();
+    const st = reader.getState();
+    card.classList.toggle('absent', !r);
+    badges.face.className = `badge${st.found ? ' on' : ''}`;
+    const active = st.expressions.filter((e) => e.active).map((e) => e.name);
+    badges.expr.textContent = active.length ? active.join(' · ') : 'no expression';
+    badges.expr.className = `badge${active.length ? ' on' : st.expressions.some((e) => e.progress > 0) ? ' pending' : ''}`;
+    for (const key of ['yaw', 'pitch', 'roll'] as const) {
+      const ref = angleRows[key];
+      const v = r?.[key] ?? 0;
+      const frac = Math.max(-1, Math.min(1, v / ANGLE_SPAN)) / 2;
+      ref.fill.style.left = frac >= 0 ? '50%' : `${(0.5 + frac) * 100}%`;
+      ref.fill.style.width = `${Math.abs(frac) * 100}%`;
+      ref.value.textContent = r ? `${fmt(v, 1)}°` : '–';
+    }
+    for (const { key, ref } of levelRows) {
+      const v = r?.[key];
+      ref.row.style.opacity = r && v === undefined ? '0.4' : '';
+      ref.row.title = r && v === undefined ? 'needs blendshapes from the tracker' : '';
+      setBar(ref, v ?? 0, v === undefined ? '–' : fmt(v, 2));
+    }
+    const cfg = reader.getConfig();
+    const eKey = cfg.expressions.map((e) => e.name).join('|');
+    if (eKey !== exprKey) {
+      exprKey = eKey;
+      exprRows.replaceChildren();
+      exprRefs = cfg.expressions.map((e) => makeRow(exprRows, `≈ ${e.name}`, 'dwell'));
+    }
+    st.expressions.forEach((e, i) => {
+      const ref = exprRefs[i];
+      if (!ref) return;
+      ref.row.classList.toggle('done', e.active);
+      setBar(ref, e.progress, e.active ? 'on' : e.inside ? fmt(e.progress, 2) : '');
+    });
+    const mKey = cfg.motions.map((m) => m.name).join('|');
+    if (mKey !== motionKey) {
+      motionKey = mKey;
+      motionRows.replaceChildren();
+      motionRefs = cfg.motions.map((m) => makeRow(motionRows, `↝ ${m.name}`, 'motion'));
+    }
+    st.motions.forEach((m, i) => motionRefs[i] && setBar(motionRefs[i]!, m.progress, fmt(m.progress, 2)));
+  }
+
+  function logHead(e: HeadEvent): void {
+    const cls = e.type === 'lost' ? 'lost' : e.type === 'expression:end' ? 'headoff' : 'headon';
+    const node = el('div', {}, [
+      el('span', { className: 't', textContent: ((e.t - t0) / 1000).toFixed(2) }),
+      el('span', { className: 'h Face', textContent: 'Face' }),
+      el('span', { className: cls, textContent: `${e.type}${'name' in e ? ` ${e.name}` : ''}` }),
+    ]);
+    logEl.prepend(node);
+    while (logEl.childElementCount > LOG_LIMIT) logEl.lastElementChild!.remove();
+  }
+
+  /** One frame's face (or none) into the reader; logs and draws what it says. */
+  function feed(face: Face | null, now: number): void {
+    lastT = Math.max(lastT, now);
+    const events = reader.update(face, lastT);
+    lastFace = face;
+    for (const e of events) {
+      logHead(e);
+      if (e.type === 'motion') backdrop.ripple(0.35);
+    }
+    if (events.some((e) => e.type === 'face' || e.type === 'lost')) showState();
+    render();
+  }
+
+  // ── settings ──
+  const cfgBox = $<HTMLTextAreaElement>('headConfig');
+  const refreshConfig = () => (cfgBox.value = JSON.stringify(editable(reader.getConfig()), null, 2));
+  $('headConfigApply').addEventListener('click', () => {
+    try {
+      const patch = JSON.parse(cfgBox.value) as unknown;
+      if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) throw new Error('expected a JSON object');
+      reader.setConfig(patch as HeadReaderConfigPatch);
+      persist();
+      refreshConfig();
+      render();
+      flash('headConfigMsg', 'Applied.');
+    } catch (err) {
+      flash('headConfigMsg', (err as Error).message, false);
+    }
+  });
+  $('headConfigReset').addEventListener('click', () => {
+    reader.setConfig(editable(defaultHeadConfig()));
+    persist();
+    refreshConfig();
+    render();
+    flash('headConfigMsg', 'Defaults restored.');
+  });
+  const showNeutral = () => {
+    const n = reader.getNeutral();
+    const set = n.yaw !== 0 || n.pitch !== 0 || n.roll !== 0 || n.eyeLeft !== null;
+    $('headNeutral').textContent = set
+      ? `neutral: yaw ${fmt(n.yaw, 1)}°, pitch ${fmt(n.pitch, 1)}°, roll ${fmt(n.roll, 1)}°, eyes ${fmt(n.eyeLeft ?? NaN, 2)} / ${fmt(n.eyeRight ?? NaN, 2)}`
+      : 'neutral: facing the camera squarely (not calibrated)';
+  };
+  $('headCalibrate').addEventListener('click', () => {
+    if (reader.calibrate()) {
+      persist();
+      flash('headConfigMsg', 'Neutral set: this is now zero, and these eyes count as open.');
+    } else flash('headConfigMsg', 'No face in view to take as neutral.', false);
+    showNeutral();
+  });
+  $('headNeutralClear').addEventListener('click', () => {
+    reader.setNeutral({ yaw: 0, pitch: 0, roll: 0, eyeLeft: null, eyeRight: null });
+    persist();
+    showNeutral();
+  });
+  refreshConfig();
+  showNeutral();
+  showState();
+  render();
+
+  return {
+    get on() {
+      return on;
+    },
+    /** Load the face model without switching the reader on (for `?selftest`). */
+    loadModel: () => (faceLandmarker ? Promise.resolve() : createFaceLandmarker()),
+    /** Called for every camera frame the hands are read from. */
+    detect(source: HTMLVideoElement, now: number): void {
+      if (!on || !faceLandmarker) return;
+      if (core.getConfig().aspect !== aspect) reader.setConfig({ aspect: (aspect = core.getConfig().aspect) });
+      feed(faceFromMediaPipe(faceLandmarker.detectForVideo(source, now)), now);
+    },
+    /** For the demo's synthetic face. */
+    feed(face: Face | null, now: number): void {
+      if (!on || !demoFaces) return;
+      if (core.getConfig().aspect !== aspect) reader.setConfig({ aspect: (aspect = core.getConfig().aspect) });
+      feed(face, now);
+    },
+    /** The real camera replaces the demo face; load the model if the reader was on without one. */
+    async cameraStarted(): Promise<void> {
+      if (demoFaces) {
+        demoFaces = false;
+        if (on) feed(null, performance.now() + reader.getConfig().lostAfterMs + 1);
+      }
+      if (on && !faceLandmarker) {
+        status('loading the face model…');
+        try {
+          await createFaceLandmarker();
+        } catch (err) {
+          on = false;
+          status(`could not load the face model: ${String((err as Error).message ?? err)}`);
+          return;
+        }
+      }
+      showState();
+    },
+    cameraStopped(): void {
+      if (on) feed(null, performance.now() + reader.getConfig().lostAfterMs + 1);
+      showState();
+    },
+    reset(): void {
+      reader.reset();
+      lastT = 0;
+      lastFace = null;
+    },
+    /** Face outline, the way the head points, and its state, over the camera image. */
+    draw(): void {
+      const r = reader.getReadings();
+      if (!on || !lastFace || !r) return;
+      const W = canvas.width;
+      const H = canvas.height;
+      const pts = lastFace.landmarks;
+      const X = (p: { x: number }) => (settings.mirror ? 1 - p.x : p.x) * W;
+      const Y = (p: { y: number }) => p.y * H;
+      ctx.strokeStyle = COLORS.raw;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      FACE_OVAL.forEach((i, k) => (k === 0 ? ctx.moveTo(X(pts[i]!), Y(pts[i]!)) : ctx.lineTo(X(pts[i]!), Y(pts[i]!))));
+      ctx.closePath();
+      ctx.stroke();
+      ctx.fillStyle = COLORS.data;
+      for (const eye of [EYES.left, EYES.right]) {
+        for (const i of [...eye.corners, ...eye.upper, ...eye.lower]) {
+          ctx.beginPath();
+          ctx.arc(X(pts[i]!), Y(pts[i]!), 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      // the direction the face points: the rotation's forward axis, drawn from the nose
+      const R = headRotation(pts, core.getConfig().aspect);
+      const nose = pts[1]!;
+      const faceW = Math.hypot((pts[234]!.x - pts[454]!.x) * W, (pts[234]!.y - pts[454]!.y) * H);
+      const dx = R[0][2] * (settings.mirror ? -1 : 1);
+      const dy = -R[1][2];
+      const anyOn = reader.getState().expressions.some((e) => e.active);
+      ctx.strokeStyle = anyOn ? COLORS.active : COLORS.data;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(X(nose), Y(nose));
+      ctx.lineTo(X(nose) + dx * faceW * 0.6, Y(nose) + dy * faceW * 0.6);
+      ctx.stroke();
+      const active = reader.getState().expressions.filter((e) => e.active).map((e) => e.name);
+      const text = `yaw ${fmt(r.yaw, 0)}° pitch ${fmt(r.pitch, 0)}° roll ${fmt(r.roll, 0)}°${active.length ? ` · ${active.join(' · ')}` : ''}`;
+      ctx.font = '600 13px Consolas, monospace';
+      const tw = ctx.measureText(text).width;
+      const chin = pts[152]!;
+      const tx = Math.min(Math.max(X(chin) - tw / 2, 4), W - tw - 4);
+      const ty = Math.min(Y(chin) + 26, H - 8);
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(tx - 4, ty - 15, tw + 8, 20);
+      ctx.fillStyle = anyOn ? COLORS.active : COLORS.text;
+      ctx.fillText(text, tx, ty);
+    },
+  };
+})();
+
+/** The Face Mesh outline, in order (MediaPipe's FACE_OVAL). */
+const FACE_OVAL = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+  172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+];
+
+/**
+ * A face for the demo, built from the canonical face model the head tests use: turned
+ * by known angles, with eyes as open as asked, centred at cx in a raw 4:3 frame.
+ */
+function demoFace(a: { yaw: number; pitch: number; roll: number }, ear: number, blendshapes: Record<string, number>, cx: number): Face {
+  const aspect = 640 / 480;
+  const R = fromAngles(a);
+  const pts = (canonicalFace as number[][]).map((p) => [...p] as [number, number, number]);
+  for (const eye of [EYES.left, EYES.right]) {
+    const [c0, c1] = eye.corners.map((i) => pts[i]!);
+    const width = Math.hypot(c0![0] - c1![0], c0![1] - c1![1], c0![2] - c1![2]);
+    const mid = (c0![1] + c1![1]) / 2;
+    eye.upper.forEach((u, k) => {
+      pts[u]![1] = mid + (ear * width) / 2;
+      pts[eye.lower[k]!]![1] = mid - (ear * width) / 2;
+    });
+  }
+  const s = 0.022;
+  const landmarks = pts.map(([x, y, z]) => {
+    const X = R[0][0] * x + R[0][1] * y + R[0][2] * z;
+    const Y = R[1][0] * x + R[1][1] * y + R[1][2] * z;
+    const Z = R[2][0] * x + R[2][1] * y + R[2][2] * z;
+    // a raw (unmirrored) frame: model +x is image right, +y is up, +z is toward the camera
+    return { x: cx + (s * X) / aspect, y: 0.4 - s * Y, z: (-s * Z) / aspect };
+  });
+  return { landmarks, blendshapes };
+}
+
 // ── backdrop ─────────────────────────────────────────────────────────────────
 
 /**
@@ -916,6 +1316,7 @@ function draw(): void {
     ctx.fillRect(0, 0, W, H);
   }
 
+  headBrick.draw();
   const cfg = core.getConfig();
   for (const h of lastHands) {
     if (settings.showRaw) drawSkeleton(h.landmarks, COLORS.raw, 1, !settings.showSmoothed);
@@ -2065,6 +2466,7 @@ const PANELS: { id: string; title: string }[] = [
   { id: 'moves', title: 'Moves' },
   { id: 'gestures', title: 'Gestures' },
   { id: 'sound', title: 'Sound' },
+  { id: 'head', title: 'Head' },
   { id: 'reliability', title: 'Reliability' },
   { id: 'fixtures', title: 'Fixtures' },
   { id: 'source', title: 'Source' },
@@ -2140,7 +2542,7 @@ function defaultLayout(): void {
   add('tuning', { referencePanel: 'hand-right', direction: 'right' });
   add('events', { referencePanel: 'stage', direction: 'below' });
   add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
-  for (const id of ['moves', 'gestures', 'sound', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
+  for (const id of ['moves', 'gestures', 'sound', 'head', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
     add(id, { referencePanel: 'tuning', direction: 'within' });
   }
   const w = window.innerWidth;
@@ -2259,6 +2661,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'r' || e.key === 'R') {
     core.reset();
     smoothers.clear();
+    headBrick.reset();
   }
   if (e.key === ' ') {
     // Space would also press whichever button has focus, such as Stop camera.
@@ -2288,7 +2691,7 @@ draw();
   };
   badge.textContent = label[__BENCH_ENV__] ?? __BENCH_ENV__;
   badge.classList.toggle('live', __BENCH_ENV__ === 'production');
-  const versions = `bench v${__BENCH_VERSION__} · gesturecore ${__CORE_VERSION__} · gesturecore-sound ${__SOUND_VERSION__}`;
+  const versions = `bench v${__BENCH_VERSION__} · gesturecore ${__CORE_VERSION__} · gesturecore-sound ${__SOUND_VERSION__} · gesturecore-head ${__HEAD_VERSION__}`;
   badge.title =
     __BENCH_ENV__ === 'production'
       ? `The published bench.\n${versions}`
@@ -2331,6 +2734,22 @@ const demo = (() => {
   ];
   let step = 0;
   let frame = 0;
+  // The head demo runs on its own 9-second loop: nod, shake, tilt, blink, raise the
+  // brows, turn. It only plays once the head reader is switched on.
+  const REST = { browInnerUp: 0.1, browOuterUpLeft: 0.08, browOuterUpRight: 0.08, browDownLeft: 0.02, browDownRight: 0.02, jawOpen: 0.03, mouthSmileLeft: 0.1, mouthSmileRight: 0.1 };
+  const demoHead = (now: number): Face => {
+    const s = ((now - t0) / 1000) % 9;
+    const bump = (from: number, to: number) => (s >= from && s < to ? Math.sin((Math.PI * (s - from)) / (to - from)) : 0);
+    const a = {
+      pitch: -16 * bump(1, 1.6),
+      yaw: 22 * Math.sin(2 * Math.PI * 2 * (s - 2.5)) * (s >= 2.5 && s < 3.25 ? 1 : 0) - 28 * bump(7.4, 8.8),
+      roll: 26 * bump(4, 5.4),
+    };
+    const ear = s >= 5.8 && s < 5.95 ? 0.05 : 0.3;
+    const brows = 0.1 + 0.75 * bump(6.2, 7.2);
+    // on the side of the picture the demo hand does not use, whichever way the view is mirrored
+    return demoFace(a, ear, { ...REST, browInnerUp: brows, browOuterUpLeft: brows * 0.8, browOuterUpRight: brows * 0.8 }, settings.mirror ? 0.8 : 0.2);
+  };
   setMessage('');
   $('keyMirror').textContent = 'demo: recorded hands, no camera';
   const timer = window.setInterval(() => {
@@ -2339,7 +2758,9 @@ const demo = (() => {
     const hands: Hand[] = s.shape
       ? [{ handedness: 'Right', score: 1, landmarks: place(shapes[s.shape]!, s.from + (s.to - s.from) * k, 0.6) }]
       : [];
-    processFrame(hands, performance.now());
+    const now = performance.now();
+    headBrick.feed(demoHead(now), now);
+    processFrame(hands, now);
     if (++frame >= s.frames) {
       frame = 0;
       step = (step + 1) % script.length;
@@ -2353,16 +2774,21 @@ const demo = (() => {
   };
 })();
 
-// `?selftest` loads the hand model without a camera and records whether this browser
+// `?selftest` loads the hand and face models without a camera and records whether this browser
 // (and the site's security policy) let it run: <html data-selftest="ok | error: …">.
 if (new URLSearchParams(location.search).has('selftest')) {
   const root = document.documentElement;
   root.dataset.selftest = 'running';
-  createLandmarker().then(
-    () => (root.dataset.selftest = `ok ${$('stDelegate').textContent ?? ''}`.trim()),
-    (err: unknown) => (root.dataset.selftest = `error: ${String((err as Error)?.message ?? err)}`),
-  );
+  createLandmarker()
+    .then(() => headBrick.loadModel())
+    .then(
+      () => (root.dataset.selftest = `ok ${$('stDelegate').textContent ?? ''} · face model ok`.trim()),
+      (err: unknown) => (root.dataset.selftest = `error: ${String((err as Error)?.message ?? err)}`),
+    );
 }
+
+// `?head` switches the head reader on at load (with `?demo`, on the demo face).
+if (new URLSearchParams(location.search).has('head')) $('headPower').click();
 
 // `?panel=docs` (or any panel id) brings that panel forward on load.
 {

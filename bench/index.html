@@ -246,10 +246,12 @@
       #log { flex: 1; overflow: auto; padding: 2px 0; font-size: 11px; }
       #log div { padding: 0 8px; white-space: nowrap; }
       #log .t { color: var(--muted); display: inline-block; width: 56px; }
-      #log .h { display: inline-block; width: 34px; color: var(--text); }
+      #log .h { display: inline-block; width: 44px; color: var(--text); }
       #log .engage, #log .pose, #log .motion, #log .pinchstart { color: var(--active); }
       #log .disengage, #log .pinchend { color: var(--text); }
       #log .lost { color: var(--fault); }
+      #log .headon { color: var(--active); }
+      #log .headoff { color: var(--text); }
       #log .move { color: var(--raw); }
 
       /* ── readout ──────────────────────────────────────────────────────── */
@@ -740,6 +742,46 @@
         </fieldset>
       </div>
 
+      <div class="panel pad" data-panel="head">
+        <p class="hint">
+          <b>gesturecore-head</b>, an optional brick: it reads your face from the same camera — where your head
+          points, nods and shakes, blinks and winks, raised brows, an open mouth, a smile. The hands work the same
+          with it off. Switching it on downloads the face model (3.8 MB) and runs it on every frame.
+        </p>
+        <div class="btns">
+          <button id="headPower" class="primary">Turn head reader on</button>
+          <span id="headState" class="hint">off</span>
+        </div>
+        <div id="headCard"></div>
+        <fieldset>
+          <legend>Neutral</legend>
+          <p class="hint">
+            Angles start from facing the camera squarely. If your screen sits to one side, or you blink-read as half
+            closed, sit as you normally do, look at the screen and press <b>Set neutral</b>: that pose becomes zero and
+            those eyes count as open.
+          </p>
+          <div class="btns">
+            <button id="headCalibrate">Set neutral</button>
+            <button id="headNeutralClear">Clear</button>
+          </div>
+          <p class="hint mono" id="headNeutral"></p>
+        </fieldset>
+        <fieldset>
+          <legend>Settings, expressions and movements (JSON)</legend>
+          <p class="hint">
+            An expression is ranges on readings, all holding at once: degrees for <code>yaw</code>, <code>pitch</code>,
+            <code>roll</code>; 0…1 for the rest, including any raw blendshape by name. A movement is strokes of one angle,
+            like a hand movement but in degrees.
+          </p>
+          <textarea id="headConfig" rows="14"></textarea>
+          <div class="btns">
+            <button id="headConfigApply" class="primary">Apply</button>
+            <button id="headConfigReset">Reset</button>
+          </div>
+          <div id="headConfigMsg"></div>
+        </fieldset>
+      </div>
+
       <div class="panel pad" data-panel="reliability">
         <fieldset>
           <legend>False activations per 10 minutes</legend>
@@ -1157,6 +1199,17 @@
             <li><b>Hear the sounds</b> — preview every built-in sound.</li>
           </ul>
           <p>Every sound is synthesized on the spot; there are no audio files. The decisions — which sound, which note, how loud — are made by pure code that is tested without audio, and only a thin layer talks to the Web Audio API.</p>
+          <h3>Head</h3>
+          <p>The <b>gesturecore-head</b> brick: a head and face reader. It takes MediaPipe's Face Landmarker points from the same camera frames and turns them into events the same way the core treats hands: measurements, then held states with a dwell and hysteresis, then movements. It is off until you switch it on, because the face model is a download of its own and costs time on every frame.</p>
+          <ul>
+            <li><b>yaw, pitch, roll</b> — where the head points, in degrees: turning to <i>your</i> right, looking up, and tilting toward your right shoulder are positive. They come from fitting MediaPipe's canonical face to the forehead, nose, eye corners and sides of the face, so talking or smiling does not move them.</li>
+            <li><b>blink L / R</b> — how closed each of your eyes is, from the eyelid points (0 open, 1 shut). Left and right are your own, whichever way the view is mirrored.</li>
+            <li><b>brows, frown, mouth, smile</b> — from MediaPipe's expression scores (blendshapes), averaged over both sides.</li>
+            <li><b>≈ expressions</b> — held states: brows raised, frown, mouth open, smile, blink, wink left and right, turn, look up or down, tilt. Each fills amber while it holds and turns green when it starts; the log shows <code>expression:start</code> and <code>expression:end</code> with how long it lasted.</li>
+            <li><b>↝ movements</b> — <code>nod</code> (down and back up) and <code>shake</code> (side to side), found by the core's own stroke detector running on the head angles.</li>
+            <li><b>Set neutral</b> — makes your usual pose zero and your resting eyes "open", for a camera that is off to one side or eyes that read half closed.</li>
+          </ul>
+          <p>Everything — the settings, the expressions and the movements — is one JSON object in the panel, and the defaults are first guesses to be tuned against real faces. Like the core, the reader is pure code tested without a camera, on synthetic faces turned by exactly known angles.</p>
           <h3>Reliability</h3>
           <p>The definition-of-done measurement: fewer than 2 unintended activations per 10 minutes. Start a session, work normally for ten minutes, and press <kbd>F</kbd> whenever a pinch or movement fires that you did not mean. Finished sessions are listed underneath. This is a measurement of the core's defaults, not a feature.</p>
           <h3>Fixtures (test captures)</h3>
