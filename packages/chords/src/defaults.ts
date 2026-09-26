@@ -28,6 +28,8 @@ export function defaultChordConfig(): ChordConfig {
     // on purpose: a hand held naturally drifts several degrees without meaning to.
     accidental: { source: 'tilt', enterDeg: 20, exitDeg: 12, invert: false },
     octave: 4,
+    requireEngaged: true,
+    playOnEngage: false,
     trigger: 'sustain',
     releaseGraceMs: 120,
   };

@@ -38,6 +38,12 @@ gesturecore-chords are new, at 0.1.0.
     a brief loss of the letter, `releaseGraceMs`) and `latch` (holds until the next).
   - Pure and fully tested: `readChord` is a function of one frame's readings, and
     `ChordReader` only adds the memory a trigger needs.
+- **gesturecore-chords:** `requireEngaged` (default on) and `playOnEngage` (default off),
+  both switchable from the Chords panel. The core names a pose the moment it recognises
+  the shape, well before the engage dwell finishes, so the reader used to sound a chord
+  while a hand was still on its way up to being engaged at all. Engaging now stays
+  silent: the letter the engaging shape spells is held back until a different one is
+  made, so it still plays when it is chosen rather than inherited.
 - **gesturecore:** `Features.bends` — the joint bend each curl was mapped from, in
   radians, thumb→pinky and unclamped. `curls` is the mapped 0..1 value, so the angle the
   curl thresholds actually compare against was not visible before; `pinchRaw` has always

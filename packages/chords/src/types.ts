@@ -55,6 +55,18 @@ export type ChordConfig = {
   accidental: AccidentalConfig;
   /** Octave of the root, scientific pitch notation: 4 puts A at MIDI 69. */
   octave: number;
+  /**
+   * Whether the note hand must be engaged before it can pick a letter. The core reports
+   * a pose the moment it recognises the shape, well before the engage dwell finishes, so
+   * without this a hand plays chords on its way up to being engaged at all.
+   */
+  requireEngaged: boolean;
+  /**
+   * Whether the shape that engages the hand also plays its chord. Off by default:
+   * engaging is how you say "I mean this", not a chord you chose. The letter is muted
+   * only until you make a different one, so it still plays when you actually pick it.
+   */
+  playOnEngage: boolean;
   trigger: Trigger;
   /**
    * `sustain` only: how long a chord survives the hands vanishing. Tracking drops for

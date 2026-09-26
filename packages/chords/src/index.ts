@@ -21,6 +21,14 @@ export class ChordReader {
   private accidental: Accidental = 0;
   /** When the hands stopped offering a chord, while one is still held. */
   private lostAt: number | null = null;
+  /**
+   * Whether the note hand was engaged last frame. `null` until the first frame: a hand
+   * that was already engaged when we started watching never engaged in front of us, so
+   * there is no transition to attribute a chord to.
+   */
+  private wasEngaged: boolean | null = null;
+  /** A chord name that engaging produced, held back until a different one is made. */
+  private muted: string | null = null;
 
   constructor(config: ChordConfigPatch = {}) {
     this.config = { ...defaultChordConfig(), ...config };
@@ -35,6 +43,18 @@ export class ChordReader {
   update(read: ReadHand, t: number): ChordEvent[] {
     const seen = readChord(this.config, read, this.accidental);
     if (seen) this.accidental = seen.accidental;
+
+    // Only a frame that actually has the hand says anything about engagement. A frame
+    // with no hand is not a disengagement, and treating it as one would make the hand
+    // look like it engaged again the moment it came back.
+    const noteState = read(this.config.noteHand).state;
+    const justEngaged = noteState !== null && this.wasEngaged === false && noteState.engaged;
+    if (noteState !== null) this.wasEngaged = noteState.engaged;
+    // The shape that engaged the hand is a by-product of engaging, not a chord anyone
+    // chose. Mute it until a different one is made, so it still plays when it is picked.
+    if (justEngaged && !this.config.playOnEngage) this.muted = seen ? seen.name : null;
+    if (this.muted !== null && (!seen || seen.name !== this.muted)) this.muted = null;
+    if (seen && seen.name === this.muted) return this.nothingHeld(t);
 
     if (!seen) return this.nothingHeld(t);
 
@@ -55,6 +75,8 @@ export class ChordReader {
     this.held = null;
     this.accidental = 0;
     this.lostAt = null;
+    this.wasEngaged = null;
+    this.muted = null;
   }
 
   getConfig(): ChordConfig {

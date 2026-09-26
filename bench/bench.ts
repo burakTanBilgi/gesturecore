@@ -1234,11 +1234,32 @@ const chordBrick = (() => {
 
   const handSel = $<HTMLSelectElement>('chordHand');
   const triggerSel = $<HTMLSelectElement>('chordTrigger');
+  const requireEngaged = $<HTMLInputElement>('chordRequireEngaged');
+  const playOnEngage = $<HTMLInputElement>('chordPlayOnEngage');
   const showControls = () => {
     const c = reader.getConfig();
     handSel.value = c.noteHand;
     triggerSel.value = c.trigger;
+    requireEngaged.checked = c.requireEngaged;
+    playOnEngage.checked = c.playOnEngage;
   };
+
+  // Both change what counts as a chord, so whatever is held now was decided under the
+  // old rule: drop it rather than leave a chord ringing that the new rule would not start.
+  for (const [box, key] of [
+    [requireEngaged, 'requireEngaged'],
+    [playOnEngage, 'playOnEngage'],
+  ] as const) {
+    box.addEventListener('change', () => {
+      reader.setConfig({ [key]: box.checked });
+      reader.reset();
+      soundBrick.holdNotes([]);
+      sounding = '';
+      persist();
+      refreshConfig();
+      render();
+    });
+  }
 
   handSel.addEventListener('change', () => {
     reader.setConfig({ noteHand: handSel.value === 'Left' ? 'Left' : 'Right' });

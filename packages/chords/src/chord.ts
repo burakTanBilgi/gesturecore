@@ -53,6 +53,10 @@ function nameOf(letter: string, accidental: Accidental, quality: 'major' | 'mino
  */
 export function readChord(config: ChordConfig, read: ReadHand, previous: Accidental = 0): Chord | null {
   const note = read(config.noteHand);
+  // Engagement is the whole system's "I mean this". The core names a pose as soon as it
+  // sees the shape, so without this the hand plays on its way up to being engaged.
+  if (config.requireEngaged && !note.state?.engaged) return null;
+
   const letter = readLetter(config, note);
   if (letter === null) return null;
 

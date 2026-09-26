@@ -720,6 +720,8 @@
           <label class="check"><input type="checkbox" id="chordPlay" checked /> play the chords — the sound brick has to be on, and these voices are separate from the cues, so both can sound at once</label>
           <div class="ctl"><label>note hand</label><select id="chordHand"><option>Right</option><option>Left</option></select><span></span></div>
           <div class="ctl"><label>trigger</label><select id="chordTrigger"><option value="engage">engage — one shot</option><option value="sustain">sustain — rings while held</option><option value="latch">latch — rings until replaced</option></select><span></span></div>
+          <label class="check"><input type="checkbox" id="chordRequireEngaged" checked /> only while the hand is engaged — the core names a pose as soon as it sees the shape, so without this a hand plays on its way up to being engaged at all</label>
+          <label class="check"><input type="checkbox" id="chordPlayOnEngage" /> play the chord that engages the hand — off by default, because engaging is how you say you mean it, not a chord you picked. The engaging letter is only held back until you make a different one, so it still plays when you choose it.</label>
         </fieldset>
         <fieldset>
           <legend>Letters, quality and accidentals (JSON)</legend>

@@ -129,3 +129,45 @@ describe('config', () => {
     expect(chords.getConfig().letters['A']).toEqual({ pose: 'point' });
   });
 });
+
+describe('the shape that engages the hand', () => {
+  /** Not engaged, then engaged: the transition the reader has to see to mute anything. */
+  const engaging = (pose: string, engaged: boolean) => reader({ Right: { s: { pose, engaged } }, Left: {} });
+
+  it('does not play, because engaging is not a decision to sound a chord', () => {
+    const chords = new ChordReader();
+    expect(chords.update(engaging('openPalm', false), 0)).toEqual([]);
+    expect(chords.update(engaging('openPalm', true), 16)).toEqual([]);
+    expect(chords.update(engaging('openPalm', true), 32)).toEqual([]);
+    expect(chords.current).toBe(null);
+  });
+
+  it('stops muting as soon as a different letter is made, and plays that one', () => {
+    const chords = new ChordReader();
+    chords.update(engaging('openPalm', false), 0);
+    chords.update(engaging('openPalm', true), 16);
+    expect(names(chords.update(holding('fist'), 32))).toEqual(['chord:start F']);
+    // and the engaging letter plays normally once it is chosen rather than inherited
+    expect(names(chords.update(holding('openPalm'), 48))).toEqual(['chord:end F', 'chord:start E']);
+  });
+
+  it('playOnEngage keeps the old behaviour for anyone who wants it', () => {
+    const chords = new ChordReader({ playOnEngage: true });
+    chords.update(engaging('openPalm', false), 0);
+    expect(names(chords.update(engaging('openPalm', true), 16))).toEqual(['chord:start E']);
+  });
+
+  it('mutes again on a later engage, not only the first', () => {
+    const chords = new ChordReader();
+    chords.update(engaging('openPalm', false), 0);
+    chords.update(engaging('openPalm', true), 16);
+    chords.update(nothing, 32);
+    chords.update(engaging('openPalm', false), 48);
+    expect(chords.update(engaging('openPalm', true), 64)).toEqual([]);
+  });
+
+  it('a hand already engaged when the reader starts is not treated as engaging', () => {
+    const chords = new ChordReader();
+    expect(names(chords.update(holding('openPalm'), 0))).toEqual(['chord:start E']);
+  });
+});
