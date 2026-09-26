@@ -7,9 +7,11 @@ export { firesWithin, fitMotion, fitPose } from './learn/fit.js';
 export { extractFeatures } from './features/extract.js';
 export { LandmarkSmoother, OneEuroFilter } from './filter/oneEuro.js';
 export { bestPose, matchPoses, scorePose } from './poses/match.js';
+export { parsePoses } from './poses/parse.js';
 export { motionProgress } from './motions/detect.js';
 export type { MotionFit, MotionFitOptions, MotionTake, PoseFit, PoseFitOptions } from './learn/fit.js';
 export type { MotionSample } from './motions/detect.js';
+export type { ParsedPoses } from './poses/parse.js';
 export type {
   Features,
   FingerName,

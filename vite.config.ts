@@ -8,6 +8,10 @@ const FIXTURES = here('./packages/core/test/fixtures/');
 // Saved bench workspaces. In the project for now; the bench treats this as one storage
 // backend behind an interface, so a deployed bench can swap it for another.
 const WORKSPACES = here('./bench/workspaces/');
+// Pose packs on disk. Unlike workspaces these are meant to be shared and committed:
+// a pose is declarative data, so a pack is something you can read in full before you
+// install it. Everything read from here goes through `parsePoses` before it is used.
+const POSES = here('./bench/poses/');
 const source = (pkg: string) => here(`./packages/${pkg}/src/index.ts`);
 const require = createRequire(import.meta.url);
 /** Semver of the project (root) and of each package, for the bench's header badge. */
@@ -215,13 +219,20 @@ function fromTheBench(req: { method?: string; headers: Record<string, unknown> }
   return !needsJson || type.startsWith('application/json');
 }
 
-/** Workspaces on disk: list, read, write, delete. Dev only — `apply: 'serve'`. */
-function saveWorkspaces(): Plugin {
+/**
+ * A folder of JSON files on disk, served to the bench: list, read, write, delete.
+ * Dev only — `apply: 'serve'` — and guarded by `fromTheBench`.
+ *
+ * Workspaces and poses are the same endpoint with a different folder, so they share one
+ * implementation: two copies of a security-sensitive handler drift, and the one that
+ * drifts is the one nobody is looking at.
+ */
+function jsonFolder(opts: { route: string; dir: string; label: string; isArray: boolean }): Plugin {
   return {
-    name: 'gesturecore-workspaces',
+    name: `gesturecore-${opts.label}`,
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/__workspaces', (req, res) => {
+      server.middlewares.use(opts.route, (req, res) => {
         const name = decodeURIComponent((req.url ?? '').replace(/^\//, '').split('?')[0] ?? '');
         const ok = (body: string) => {
           res.setHeader('content-type', 'application/json');
@@ -234,22 +245,22 @@ function saveWorkspaces(): Plugin {
         const method = req.method ?? 'GET';
 
         if (!fromTheBench(req as never, method === 'POST')) return fail(403, 'forbidden');
-        mkdirSync(WORKSPACES, { recursive: true });
+        mkdirSync(opts.dir, { recursive: true });
 
         // A name becomes a filename, so it is checked rather than escaped.
         const named = /^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,39}$/.test(name);
 
         if (method === 'GET' && name === '') {
-          const list = readdirSync(WORKSPACES)
+          const list = readdirSync(opts.dir)
             .filter((f) => f.endsWith('.json'))
             .map((f) => f.slice(0, -5));
           return ok(JSON.stringify(list));
         }
         if (!named) return fail(400, 'bad name');
-        const file = `${WORKSPACES}${name}.json`;
+        const file = `${opts.dir}${name}.json`;
 
         if (method === 'GET') {
-          if (!existsSync(file)) return fail(404, 'no such workspace');
+          if (!existsSync(file)) return fail(404, `no such ${opts.label}`);
           return ok(readFileSync(file, 'utf8'));
         }
         if (method === 'DELETE') {
@@ -266,9 +277,14 @@ function saveWorkspaces(): Plugin {
         req.on('end', () => {
           try {
             const data = JSON.parse(body) as unknown;
-            if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('expected a JSON object');
+            // Shape only. What a pose file may actually contain is decided by
+            // `parsePoses` in the core, on the way in as well as on the way out.
+            const shaped = opts.isArray
+              ? Array.isArray(data)
+              : typeof data === 'object' && data !== null && !Array.isArray(data);
+            if (!shaped) throw new Error(`expected a JSON ${opts.isArray ? 'array' : 'object'}`);
             writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
-            ok(JSON.stringify({ saved: `bench/workspaces/${name}.json` }));
+            ok(JSON.stringify({ saved: `bench/${opts.dir.split('/bench/')[1] ?? ''}${name}.json` }));
           } catch (err) {
             fail(400, String(err));
           }
@@ -279,7 +295,14 @@ function saveWorkspaces(): Plugin {
 }
 
 export default defineConfig(({ command }) => ({
-  plugins: [dockviewCss(), quietMediapipeSourcemap(), saveFixtures(), saveWorkspaces(), hostMediapipe()],
+  plugins: [
+    dockviewCss(),
+    quietMediapipeSourcemap(),
+    saveFixtures(),
+    jsonFolder({ route: '/__workspaces', dir: WORKSPACES, label: 'workspaces', isArray: false }),
+    jsonFolder({ route: '/__poses', dir: POSES, label: 'poses', isArray: true }),
+    hostMediapipe(),
+  ],
   define: {
     __BENCH_ENV__: JSON.stringify(benchEnv(command).env),
     __BENCH_REF__: JSON.stringify(benchEnv(command).ref),
