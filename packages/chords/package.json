@@ -1,0 +1,30 @@
+{
+  "name": "gesturecore-chords",
+  "version": "0.1.0",
+  "description": "Optional chord brick for gesturecore: two hands become a named chord — one picks the note, the other its quality.",
+  "keywords": ["gesturecore", "gesture", "music", "chord", "hand-tracking"],
+  "homepage": "https://github.com/burakTanBilgi/gesturecore/tree/main/packages/chords#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/burakTanBilgi/gesturecore.git", "directory": "packages/chords" },
+  "bugs": { "url": "https://github.com/burakTanBilgi/gesturecore/issues" },
+  "author": "tanburak",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "peerDependencies": {
+    "gesturecore": "^0.2.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

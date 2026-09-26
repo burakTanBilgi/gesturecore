@@ -1,0 +1,9 @@
+{
+  // Pure data: no DOM, no audio. Turning hands into chord names needs neither.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Type against the core's source, so the workspace needs no build step first.
+    "paths": { "gesturecore": ["../core/src/index.ts"] }
+  },
+  "include": ["src"]
+}

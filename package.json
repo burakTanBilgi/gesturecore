@@ -3,19 +3,23 @@
   "version": "0.2.0",
   "private": true,
   "description": "gesturecore and its optional bricks, plus the tuning bench.",
-  "repository": { "type": "git", "url": "git+https://github.com/burakTanBilgi/gesturecore.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/burakTanBilgi/gesturecore.git"
+  },
   "author": "tanburak",
   "license": "MIT",
   "type": "module",
   "workspaces": [
     "packages/core",
+    "packages/chords",
     "packages/sound",
     "packages/head"
   ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p packages/core && tsc -p packages/sound && tsc -p packages/head && tsc -p bench",
+    "typecheck": "tsc -p packages/core && tsc -p packages/chords && tsc -p packages/sound && tsc -p packages/head && tsc -p bench",
     "build": "npm run build --workspaces",
     "bench": "vite",
     "fetch-model": "node scripts/fetch-model.mjs",

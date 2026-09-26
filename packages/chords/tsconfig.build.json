@@ -1,0 +1,15 @@
+{
+  // Type checking reads the core's source (see tsconfig.json), but a build must not:
+  // pulling in .ts from outside rootDir makes tsc try to emit the core here too.
+  // Against the core's built types instead, so this emits only its own files.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": { "gesturecore": ["../core/dist/index.d.ts"] }
+  },
+  "include": ["src"]
+}
