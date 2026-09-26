@@ -58,6 +58,21 @@ export type ControlDescription = {
   root?: Note;
 };
 
+/** How a held set of notes sounds. Every field has a sensible default. */
+export type NoteVoicing = {
+  /** Voice-name prefix; slots are `${voice}:0`, `${voice}:1`, … */
+  voice?: string;
+  /** How many notes can sound at once. Extra notes are dropped, spare slots silenced. */
+  slots?: number;
+  waveform?: Waveform;
+  /** Total gain for the whole set, shared between the notes actually sounding. */
+  gain?: number;
+  /** Lowpass cutoff, Hz. */
+  brightness?: number;
+  /** -1 left … 1 right. */
+  pan?: number;
+};
+
 export type SoundConfig = {
   /** Master volume, 0..1. */
   volume: number;

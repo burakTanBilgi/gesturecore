@@ -6,7 +6,7 @@ import { DEFAULT_CUES, THEREMIN, defaultSoundConfig } from '../src/defaults.js';
 import type { SoundEngine } from '../src/engine.js';
 import { GestureSound } from '../src/index.js';
 import { midiToHz, snapToScale, toMidi } from '../src/notes.js';
-import { planCues, planSound, planVoices, readSource, readerFor } from '../src/plan.js';
+import { planCues, planNotes, planSound, planVoices, readSource, readerFor } from '../src/plan.js';
 import type { CueDescription, ReadHand, SoundAction } from '../src/types.js';
 
 function features(over: Partial<Features> = {}): Features {
@@ -192,6 +192,88 @@ describe('GestureSound config', () => {
     expect(() => sound.setConfig({ cues: [{ on: 'engage', sound: 'blip', note: 'H9' }] })).toThrow(/not a note/);
     expect(sound.getConfig()).toEqual(before);
     expect(() => new GestureSound({ controls: [{ ...THEREMIN[0]!, root: 'nope' }] }, silent)).toThrow(/root/);
+  });
+});
+
+describe('planNotes', () => {
+  const voices = (a: SoundAction[]) => a.filter((x): x is Extract<SoundAction, { kind: 'voice' }> => x.kind === 'voice');
+
+  it('sounds every note as its own sustained voice', () => {
+    const out = voices(planNotes([69, 73, 76]));
+
+    expect(out.map((v) => v.on)).toEqual([true, true, true]);
+    expect(out.map((v) => Math.round(v.frequency))).toEqual([440, 554, 659]);
+  });
+
+  it('names the voices by slot, so a chord change glides instead of restarting', () => {
+    const first = voices(planNotes([69, 73, 76])).map((v) => v.voice);
+    const second = voices(planNotes([71, 74, 78])).map((v) => v.voice);
+
+    expect(first).toEqual(second);
+  });
+
+  it('silences the slots a shorter chord does not use', () => {
+    const out = voices(planNotes([69]));
+
+    expect(out.map((v) => v.on)).toEqual([true, false, false]);
+  });
+
+  it('silences everything when nothing is held', () => {
+    expect(voices(planNotes([])).every((v) => !v.on)).toBe(true);
+  });
+
+  it('shares the gain out, so a triad is not three times as loud as one note', () => {
+    const one = voices(planNotes([69]))[0]!;
+    const three = voices(planNotes([69, 73, 76]))[0]!;
+
+    expect(three.gain).toBeCloseTo(one.gain / 3, 6);
+  });
+
+  it('takes more notes than the default three when asked', () => {
+    expect(voices(planNotes([60, 64, 67, 71], { slots: 4 })).filter((v) => v.on)).toHaveLength(4);
+  });
+});
+
+describe('GestureSound.holdNotes', () => {
+  /** A stub that runs, and remembers what it was told to do. */
+  function recorder() {
+    const applied: SoundAction[][] = [];
+    const engine = {
+      setVolume() {},
+      apply(a: readonly SoundAction[]) { applied.push([...a]); },
+      get running() { return true; },
+    } as unknown as SoundEngine;
+    return { engine, applied };
+  }
+
+  it('hands the notes to the engine as voices', () => {
+    const { engine, applied } = recorder();
+
+    new GestureSound({}, engine).holdNotes([69, 73, 76]);
+
+    const on = applied.at(-1)!.filter((a) => a.kind === 'voice' && a.on);
+    expect(on).toHaveLength(3);
+  });
+
+  it('does nothing while the engine is stopped', () => {
+    const applied: SoundAction[][] = [];
+    const stopped = {
+      setVolume() {},
+      apply(a: readonly SoundAction[]) { applied.push([...a]); },
+      get running() { return false; },
+    } as unknown as SoundEngine;
+
+    new GestureSound({}, stopped).holdNotes([69]);
+
+    expect(applied).toEqual([]);
+  });
+
+  it('silences the chord when handed nothing', () => {
+    const { engine, applied } = recorder();
+
+    new GestureSound({}, engine).holdNotes([]);
+
+    expect(applied.at(-1)!.every((a) => a.kind === 'voice' && !a.on)).toBe(true);
   });
 });
 

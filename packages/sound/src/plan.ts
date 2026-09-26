@@ -7,7 +7,16 @@
  */
 import type { Features, GestureEvent, HandLabel } from 'gesturecore';
 import { midiToHz, snapToScale, toMidi } from './notes.js';
-import type { ControlDescription, ControlSource, CueDescription, ReadHand, SoundAction, SoundConfig, SoundName } from './types.js';
+import type {
+  ControlDescription,
+  ControlSource,
+  CueDescription,
+  NoteVoicing,
+  ReadHand,
+  SoundAction,
+  SoundConfig,
+  SoundName,
+} from './types.js';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
@@ -90,6 +99,37 @@ function conditionHolds(c: ControlDescription, read: ReadHand): boolean {
  * controls' conditions hold; each control sets the parameter it targets, and a
  * parameter nobody controls keeps a sensible default.
  */
+/**
+ * Hold a set of MIDI notes as sustained voices — a chord, an interval, a drone.
+ * It knows nothing about gestures or chords: something else decides which notes,
+ * this only decides how they sound.
+ *
+ * The voices are named by slot rather than by note, so changing the notes glides
+ * the same oscillators instead of stopping and restarting them. Every slot is
+ * reported every time, `on: false` for the unused ones — a voice left unmentioned
+ * would keep sounding.
+ */
+export function planNotes(notes: readonly number[], voicing: NoteVoicing = {}): SoundAction[] {
+  const { voice = 'notes', slots = 3, waveform = 'triangle', gain = 0.32, brightness = 2200, pan = 0 } = voicing;
+  const playing = notes.slice(0, slots);
+  // Three oscillators at one note's gain would clip; share it out instead.
+  const each = playing.length > 0 ? gain / playing.length : gain;
+
+  return Array.from({ length: Math.max(slots, playing.length) }, (_, i) => {
+    const midi = playing[i];
+    return {
+      kind: 'voice' as const,
+      voice: `${voice}:${i}`,
+      on: midi !== undefined,
+      waveform,
+      frequency: midiToHz(midi ?? 0),
+      gain: each,
+      brightness,
+      pan,
+    };
+  });
+}
+
 export function planVoices(controls: readonly ControlDescription[], read: ReadHand): SoundAction[] {
   const byVoice = new Map<string, ControlDescription[]>();
   for (const c of controls) byVoice.set(c.voice, [...(byVoice.get(c.voice) ?? []), c]);

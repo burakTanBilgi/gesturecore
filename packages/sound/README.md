@@ -56,6 +56,29 @@ same voice.
 Pitch snaps to `pentatonic` by default — it is hard to make sound wrong. Use `none`
 for a continuous slide.
 
+## Held notes — a chord, an interval, a drone
+
+Cues fire once and controls follow a hand. `holdNotes` does neither: it sounds a set
+of MIDI notes and keeps sounding them until told otherwise.
+
+```ts
+sound.holdNotes([69, 73, 76]);           // A major
+sound.holdNotes([69, 72, 76]);           // glides to A minor — same oscillators
+sound.holdNotes([]);                     // silence
+```
+
+It knows nothing about chords or gestures: something else decides which notes. The
+[chords brick](../chords#readme) is what decides them in the bench.
+
+The voices are named by slot, not by note, so changing the notes glides the same
+oscillators rather than restarting them, and the gain is shared out between the notes
+sounding — a triad is not three times as loud as one note. These voices are separate
+from the cues and the controls, so all three can sound at once.
+
+```ts
+sound.holdNotes(notes, { voice: 'chord', slots: 3, waveform: 'triangle', gain: 0.34, brightness: 1800 });
+```
+
 ## How it is built
 
 - **`plan.ts`** decides what should sound: events and hand readings in, plain actions

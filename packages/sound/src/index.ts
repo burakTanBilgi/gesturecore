@@ -2,8 +2,8 @@ import type { GestureEvent } from 'gesturecore';
 import { defaultSoundConfig } from './defaults.js';
 import { SoundEngine } from './engine.js';
 import { toMidi } from './notes.js';
-import { planSound } from './plan.js';
-import type { ReadHand, SoundConfig, SoundConfigPatch } from './types.js';
+import { planNotes, planSound } from './plan.js';
+import type { NoteVoicing, ReadHand, SoundConfig, SoundConfigPatch } from './types.js';
 
 /**
  * Sound for gesturecore, as an optional brick: feed it what the core produced each
@@ -45,6 +45,16 @@ export class GestureSound {
     this.engine.apply(planSound(this.config, events, read));
   }
 
+  /**
+   * Hold a set of MIDI notes until told otherwise — a chord, an interval, a drone.
+   * Independent of `update`: it uses its own voices, so a chord and the theremin can
+   * sound at once. Pass an empty list to silence it.
+   */
+  holdNotes(notes: readonly number[], voicing: NoteVoicing = {}): void {
+    if (!this.engine.running) return;
+    this.engine.apply(planNotes(notes, voicing));
+  }
+
   getConfig(): SoundConfig {
     return JSON.parse(JSON.stringify(this.config)) as SoundConfig;
   }
@@ -77,7 +87,7 @@ function checked(config: SoundConfig): SoundConfig {
 }
 
 export { SoundEngine } from './engine.js';
-export { planCues, planSound, planVoices, readSource, readerFor } from './plan.js';
+export { planCues, planNotes, planSound, planVoices, readSource, readerFor } from './plan.js';
 export { midiToHz, snapToScale, toMidi } from './notes.js';
 export { DEFAULT_CUES, THEREMIN, defaultSoundConfig } from './defaults.js';
 export type {
@@ -87,6 +97,7 @@ export type {
   CueDescription,
   HandReading,
   Note,
+  NoteVoicing,
   ReadHand,
   Scale,
   SoundAction,
