@@ -5,20 +5,56 @@ All notable changes are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). Until 1.0.0, a new feature or a change in
 behaviour raises the minor version and a fix raises the patch version.
 
-There are four version numbers:
+There are five version numbers:
 
 - **the project** (root `package.json`, git tags `vX.Y.Z`): the bench and the site, shown
   in the bench's header badge;
 - **`gesturecore`** (`packages/core`);
 - **`gesturecore-sound`** (`packages/sound`);
-- **`gesturecore-head`** (`packages/head`).
+- **`gesturecore-head`** (`packages/head`);
+- **`gesturecore-chords`** (`packages/chords`).
+
+Each `package.json` carries its last released version; the numbers below are what the
+next release will set them to.
 
 ## [Unreleased]
 
-To be released as project 0.3.0, a new feature. gesturecore 0.2.0 and gesturecore-sound
-0.1.0 are unchanged.
+To be released as project 0.3.0, a new feature. gesturecore goes to 0.3.0 and
+gesturecore-sound to 0.2.0, both additions only. gesturecore-head and
+gesturecore-chords are new, at 0.1.0.
 
 ### Added
+
+- **gesturecore-chords** (new package, 0.1.0): chords from two hands, as a brick.
+  - One hand counts the letter on its fingers, the other says how it is played. Nothing
+    is hardcoded: every shape, the minor shape, the accidental source and the trigger
+    come from config, and `noteHand` swaps both hands' jobs at once.
+  - The default letters are A–E on one to five fingers (`point`, `peace`, `three`,
+    `four`, `openPalm`), `fist` for F and an index pinch for G; a middle-finger pinch on
+    the other hand makes it minor.
+  - Tilting the note hand past 20° sharpens, flattens when inverted, and releases at 12°
+    — a dead band, so a hand held near the edge cannot flap between them.
+  - Three triggers: `engage` (sounds while the hand is engaged), `sustain` (holds through
+    a brief loss of the letter, `releaseGraceMs`) and `latch` (holds until the next).
+  - Pure and fully tested: `readChord` is a function of one frame's readings, and
+    `ChordReader` only adds the memory a trigger needs.
+- **gesturecore:** `Features.bends` — the joint bend each curl was mapped from, in
+  radians, thumb→pinky and unclamped. `curls` is the mapped 0..1 value, so the angle the
+  curl thresholds actually compare against was not visible before; `pinchRaw` has always
+  been exposed for the same reason.
+- **gesturecore-sound:** `holdNotes(notes, voicing)` and the pure `planNotes` behind it —
+  a set of notes held as one voiced chord, one slot per note, the gain shared between the
+  notes actually sounding. Silent unless the engine is running.
+- Bench: a **Chords** panel — the letter each hand is holding, which are recorded and
+  which are not, the chord now playing, and a JSON editor for letters, quality and
+  accidentals. Chord starts and ends appear in the log.
+- Bench: **save my workspace**, in the Panels menu. A named layout is written to
+  `bench/workspaces/<name>.json` through a `WorkspaceStore` interface — the dev server
+  writes the file; anywhere else falls back to this browser. The folder is today's
+  backend, not the design: a deployed bench swaps the implementation, so nobody has to
+  clone the project to keep a layout.
+- Bench: **Tuning → Readouts** sets how often the digits are allowed to change, once a
+  second by default.
 
 - **gesturecore-head** (new package, 0.1.0): a head and face reader built as a brick.
   - Head yaw, pitch and roll come from a least-squares fit of MediaPipe's canonical face
@@ -43,6 +79,26 @@ To be released as project 0.3.0, a new feature. gesturecore 0.2.0 and gesturecor
 - Bench: the hand and face models share one MediaPipe runtime load.
 - Bench: numbers that round to zero no longer show as `-0`, and the log's hand column is
   wide enough for "Right".
+- Bench: the manual is its own page (`bench/docs.html`), reached by **Docs** in the
+  header, and no longer a panel in the dock. A reference document was competing for
+  space with live instruments, and it was 45 % of the bench's markup — `bench/index.html`
+  went from 104 KB to 53 KB. The tokens, reset, type and backdrop both pages share moved
+  to `bench/theme.css`. Anchors now work as ordinary links, so the manual can be
+  bookmarked, printed and kept open on a second screen.
+- Bench: the readouts are quieter, so the panels can be read rather than watched.
+  - Digits commit at most once a second. A figure repainted 30 times a second registers
+    as motion, not as a value, and with ~60 rows on screen that was most of why the bench
+    read as a cockpit. HF-STD-001B 5.6.5.1.3 makes the once-a-second limit a "shall".
+    Bars still move every frame — a length is read as a shape.
+  - Measurements are drawn in grey; colour now means state, not data. A bar turns green
+    only when something has actually happened, per 5.6.6.2.1.8 (code by shape first,
+    colour as the redundant layer).
+  - Every tuning slider that is a threshold on a measurable reading carries that reading
+    on its own track, as one grey needle per finger per tracked hand: the pinch `closed`
+    and `open` thresholds against the live fingertip distances, the curl angles against
+    the live joint bends. 5.4.1.1.3.1 asks for a control beside the display it affects;
+    these sliders cannot move to the hand cards without being duplicated, so the reading
+    moves to the slider instead.
 
 ## [0.2.0] — 2026-09-17
 

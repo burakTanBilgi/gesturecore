@@ -46,6 +46,13 @@ import {
   matchPoses,
 } from 'gesturecore';
 import {
+  ChordReader,
+  chordStatus,
+  defaultChordConfig,
+  type ChordConfigPatch,
+  type ChordEvent,
+} from 'gesturecore-chords';
+import {
   DEFAULT_CUES,
   GestureSound,
   THEREMIN,
@@ -91,8 +98,12 @@ const LS = {
   config: 'gesturecore.bench.config.v1',
   sound: 'gesturecore.bench.sound.v1',
   head: 'gesturecore.bench.head.v1',
+  chords: 'gesturecore.bench.chords.v1',
   settings: 'gesturecore.bench.settings.v3',
-  layout: 'gesturecore.bench.layout.v1',
+  // v2 added the Chords panel, v3 removed Docs: a saved layout wins over the default
+  // one, so it would otherwise miss a new panel, or name a panel that no longer exists.
+  layout: 'gesturecore.bench.layout.v3',
+  workspaces: 'gesturecore.bench.workspaces.v1',
   sessions: 'gesturecore.bench.sessions.v1',
 };
 
@@ -114,6 +125,8 @@ function save(key: string, value: unknown): void {
 }
 
 type BenchSettings = {
+  /** How often the readouts' digits are allowed to change, in Hz. 0 holds them. */
+  digitHz: number;
   mirror: boolean;
   flipHandedness: boolean;
   deviceId: string;
@@ -131,6 +144,7 @@ type BenchSettings = {
 };
 
 const DEFAULT_SETTINGS: BenchSettings = {
+  digitHz: 1,
   mirror: true,
   // Verified on the target laptop: MediaPipe's label is already anatomical for the unmirrored frame.
   flipHandedness: false,
@@ -156,6 +170,19 @@ for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof BenchSettings)[]) {
 }
 const saveSettings = () => save(LS.settings, settings);
 
+// Readout rate. Kept with the other bench-display settings rather than in the core
+// config: it changes how the bench draws, never what the core decides.
+{
+  const sel = $<HTMLSelectElement>('digitHz');
+  sel.value = String(settings.digitHz);
+  sel.addEventListener('change', () => {
+    settings.digitHz = Number(sel.value) || 0;
+    saveSettings();
+    forceDigits();
+    renderReadout();
+  });
+}
+
 // ── core ─────────────────────────────────────────────────────────────────────
 
 const core = new GestureCore(load<GestureCoreConfigPatch>(LS.config));
@@ -164,6 +191,7 @@ const saveConfig = () => save(LS.config, core.getConfig());
 function applyConfig(patch: GestureCoreConfigPatch): void {
   core.setConfig(patch);
   saveConfig();
+  forceDigits();
   for (const s of smoothers.values()) s.setParams(core.getConfig().smoothing);
 }
 
@@ -181,6 +209,53 @@ const stageMsg = $('stageMsg');
 /** Which dock panels are on screen; hidden ones are not drawn or updated. */
 const visible = new Map<string, boolean>();
 const shows = (panel: string) => visible.get(panel) !== false;
+
+/**
+ * Digits change at most `settings.digitHz` times a second; bars keep moving every frame.
+ *
+ * A number repainted 30 times a second cannot be read — it registers as motion rather
+ * than as a value, and with ~60 rows on screen that is most of why the bench reads as a
+ * cockpit. HF-STD-001B 5.6.5.1.3 makes it a "shall": data a user must read accurately is
+ * not updated more often than once a second. Bars are exempt — a moving length is read
+ * as a shape, not as a figure.
+ */
+let digitsOpen = true;
+let digitsAt = 0;
+
+/**
+ * Needles drawn on the tuning sliders: each entry takes the features of every tracked
+ * hand and marks where the reading it governs sits right now.
+ *
+ * HF-STD-001B 5.4.1.1.3.1 wants a control beside the display it affects. These sliders
+ * cannot move to the hand cards — one config, two hands, so the control would be
+ * duplicated — so the reading travels the other way, onto the track the handle already
+ * rides. Dragging `closed` past a needle is the pinch closing, watched as it happens.
+ *
+ * Declared here, above every use: this array is read inside `renderReadout`, which runs
+ * during module init long before `buildSliders` fills it.
+ */
+const sliderLive: ((hands: Features[]) => void)[] = [];
+
+/** Once a frame, before rendering: decides whether digits may change on this pass. */
+function tickDigits(now: number): void {
+  const hz = settings.digitHz;
+  if (hz <= 0) {
+    digitsOpen = false;
+    return;
+  }
+  digitsOpen = now - digitsAt >= 1000 / hz;
+  if (digitsOpen) digitsAt = now;
+}
+
+/**
+ * Let the next render commit its digits whatever the clock says. For a change the user
+ * just made — a slider, a panel opening — where waiting up to a second reads as broken.
+ */
+function forceDigits(): void {
+  digitsOpen = true;
+  digitsAt = performance.now();
+}
+
 
 let landmarker: HandLandmarker | null = null;
 let stream: MediaStream | null = null;
@@ -348,8 +423,10 @@ function stopCamera(): void {
   // Let the core see the hands disappear so lost events fire and state clears.
   handleEvents(core.update([], coreTime(performance.now() + core.getConfig().lostAfterMs + 1)));
   headBrick.cameraStopped();
+  chordBrick.cameraStopped();
   lastHands = [];
   lastSmoothed.clear();
+  forceDigits();
   draw();
   renderReadout();
 }
@@ -396,9 +473,11 @@ function processFrame(hands: Hand[], now: number): GestureEvent[] {
   lastHands = hands;
   updateVisualSmoothing(hands, now);
   handleEvents(events);
+  chordBrick.onFrame(coreTime(now));
   capture.onFrame(hands);
   poseRecorder.onFrame();
   motionRecorder.onFrame(coreTime(now));
+  tickDigits(now);
   draw();
   renderReadout();
   moves.update();
@@ -682,6 +761,16 @@ const soundBrick = (() => {
   return {
     update(events: readonly GestureEvent[]): void {
       sound.update(events, read);
+    },
+    /**
+     * For bricks that decide notes of their own — the chord brick does. Its voices are
+     * separate from the cues and the theremin, so they can all sound at once.
+     */
+    holdNotes(notes: readonly number[]): void {
+      sound.holdNotes(notes, { voice: 'chord', slots: 3, waveform: 'triangle', gain: 0.34, brightness: 1800 });
+    },
+    get running(): boolean {
+      return sound.running;
     },
   };
 })();
@@ -1048,6 +1137,183 @@ function demoFace(a: { yaw: number; pitch: number; roll: number }, ear: number, 
   });
   return { landmarks, blendshapes };
 }
+
+// ── chord brick ──────────────────────────────────────────────────────────────
+
+/**
+ * gesturecore-chords, wired in as an optional brick: one hand picks the note, the
+ * other decides major or minor. Unlike the head reader there is nothing to download
+ * and nothing to switch on — it reads the poses and pinches the core already
+ * reports, so it costs a table lookup a frame.
+ *
+ * Three of the letters name poses the core does not ship (`peace`, `three`, `four`).
+ * Until they are recorded in Moves those letters can never fire, so the panel greys
+ * them out rather than leaving them silently dead.
+ */
+const chordBrick = (() => {
+  const saved = load<ChordConfigPatch>(LS.chords) ?? {};
+  let reader: ChordReader;
+  try {
+    reader = new ChordReader(saved);
+  } catch {
+    // a saved config the brick now refuses: start clean rather than not at all
+    reader = new ChordReader();
+  }
+  const read = readerFor(core);
+  const persist = () => save(LS.chords, reader.getConfig());
+
+  // ── the panel's readout ──
+  const rows = el('div', { className: 'rows' });
+  const badges = {
+    chord: el('span', { className: 'badge', textContent: '–' }),
+    quality: el('span', { className: 'badge', textContent: 'major' }),
+  };
+  const card = el('div', { className: 'hand chords absent' }, [
+    el('h2', {}, [el('span', { className: 'name', textContent: 'Chord' }), badges.chord, badges.quality]),
+    rows,
+  ]);
+  $('chordCard').append(card);
+
+  let letterKey = '';
+  let letterRefs: RowRefs[] = [];
+
+  function render(): void {
+    if (!shows('chords')) return;
+    const known = core.getConfig().poses.map((p) => p.name);
+    const status = chordStatus(reader.getConfig(), read, known, reader.current?.accidental ?? 0);
+
+    const held = reader.current;
+    card.classList.toggle('absent', !held);
+    badges.chord.textContent = held ? held.name : '–';
+    badges.chord.className = `badge${held ? ' on' : ''}`;
+    badges.quality.textContent =
+      status.accidental === 1 ? `${status.quality} · sharp` : status.accidental === -1 ? `${status.quality} · flat` : status.quality;
+    badges.quality.className = `badge${status.quality === 'minor' ? ' on' : ''}`;
+
+    // Rebuild the letter rows only when the letter map itself changes.
+    const key = status.letters.map((l) => l.letter).join('|');
+    if (key !== letterKey) {
+      letterKey = key;
+      rows.replaceChildren();
+      letterRefs = status.letters.map((l) => makeRow(rows, l.letter, 'dwell'));
+    }
+    status.letters.forEach((l, i) => {
+      const ref = letterRefs[i];
+      if (!ref) return;
+      const shape = 'pose' in l.shape ? l.shape.pose : `pinch ${l.shape.pinch}`;
+      ref.row.classList.toggle('done', l.held);
+      // The value column is narrow: the shape name goes in it, the reason in the tooltip.
+      ref.row.classList.toggle('missing', l.missing);
+      ref.row.title = l.missing ? `the core has no pose called "${shape}" — record it in Moves` : shape;
+      setBar(ref, l.held ? 1 : 0, shape);
+    });
+  }
+
+  function logChord(e: ChordEvent): void {
+    const node = el('div', {}, [
+      el('span', { className: 't', textContent: ((e.t - t0) / 1000).toFixed(2) }),
+      el('span', { className: 'h Chord', textContent: 'Chord' }),
+      el('span', {
+        className: e.type === 'chord:end' ? 'chordoff' : 'chordon',
+        textContent: `${e.type} ${e.chord.name}`,
+      }),
+    ]);
+    logEl.prepend(node);
+    while (logEl.childElementCount > LOG_LIMIT) logEl.lastElementChild!.remove();
+  }
+
+  // ── settings ──
+  const cfgBox = $<HTMLTextAreaElement>('chordConfig');
+  const refreshConfig = () => (cfgBox.value = JSON.stringify(reader.getConfig(), null, 2));
+
+  const playing = $<HTMLInputElement>('chordPlay');
+  playing.addEventListener('change', () => {
+    if (!playing.checked) soundBrick.holdNotes([]);
+    sounding = playing.checked ? sounding : '';
+  });
+
+  const handSel = $<HTMLSelectElement>('chordHand');
+  const triggerSel = $<HTMLSelectElement>('chordTrigger');
+  const showControls = () => {
+    const c = reader.getConfig();
+    handSel.value = c.noteHand;
+    triggerSel.value = c.trigger;
+  };
+
+  handSel.addEventListener('change', () => {
+    reader.setConfig({ noteHand: handSel.value === 'Left' ? 'Left' : 'Right' });
+    reader.reset();
+    persist();
+    refreshConfig();
+    render();
+  });
+  triggerSel.addEventListener('change', () => {
+    const t = triggerSel.value;
+    reader.setConfig({ trigger: t === 'engage' ? 'engage' : t === 'latch' ? 'latch' : 'sustain' });
+    reader.reset();
+    persist();
+    refreshConfig();
+    render();
+  });
+
+  $('chordConfigApply').addEventListener('click', () => {
+    try {
+      const patch = JSON.parse(cfgBox.value) as unknown;
+      if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) throw new Error('expected a JSON object');
+      reader.setConfig(patch as ChordConfigPatch);
+      reader.reset();
+      persist();
+      refreshConfig();
+      showControls();
+      render();
+      flash('chordConfigMsg', 'Applied.');
+    } catch (err) {
+      flash('chordConfigMsg', (err as Error).message, false);
+    }
+  });
+  $('chordConfigReset').addEventListener('click', () => {
+    reader.setConfig(defaultChordConfig());
+    reader.reset();
+    persist();
+    refreshConfig();
+    showControls();
+    render();
+    flash('chordConfigMsg', 'Defaults restored.');
+  });
+
+  refreshConfig();
+  showControls();
+  render();
+
+  /** The chord the voices are currently holding, so they are only re-sent on a change. */
+  let sounding = '';
+  function play(): void {
+    const want = playing.checked ? (reader.current?.notes ?? []) : [];
+    const key = want.join(',');
+    if (key === sounding) return;
+    sounding = key;
+    soundBrick.holdNotes(want);
+  }
+
+  return {
+    /** Called once a frame, after the core has been updated. */
+    onFrame(t: number): void {
+      for (const e of reader.update(read, t)) logChord(e);
+      play();
+      render();
+    },
+    cameraStopped(): void {
+      reader.reset();
+      play();
+      render();
+    },
+    reset(): void {
+      reader.reset();
+      play();
+      render();
+    },
+  };
+})();
 
 // ── backdrop ─────────────────────────────────────────────────────────────────
 
@@ -1432,9 +1698,18 @@ const cards = new Map(LABELS.map((l) => [l, buildHandCard(l)] as const));
 $('handRight').append(cards.get('Right')!.card);
 $('handLeft').append(cards.get('Left')!.card);
 
+/**
+ * A value cell, at the digit rate. Takes anything that has one, so the multi-bar
+ * readouts obey the same rate as the plain rows. A cell built this frame fills in
+ * regardless, rather than sitting blank for up to a second.
+ */
+function setDigits(ref: { value: HTMLElement }, text: string): void {
+  if (digitsOpen || ref.value.textContent === '') ref.value.textContent = text;
+}
+
 function setBar(ref: RowRefs, frac: number, text: string): void {
   ref.fill.style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`;
-  ref.value.textContent = text;
+  setDigits(ref, text);
 }
 
 function renderReadout(): void {
@@ -1472,6 +1747,9 @@ function renderReadout(): void {
       if (ref) setBar(ref, m.progress, fmt(m.progress, 2));
     });
 
+    // Quiet unless the thumb is actually closed on a finger — the moment a pinch
+    // becomes possible is news; the distance on its way there is not.
+    c.r.pinch.row.classList.toggle('signal', !!st.pinchClosed);
     setBar(c.r.pinch, f.pinch, fmt(f.pinch));
     const h = cfg.pinch.hysteresis;
     let closest: PinchFinger = 'index';
@@ -1485,13 +1763,13 @@ function renderReadout(): void {
       b.ticks[1]!.style.left = `${((cfg.pinch.closed + 3 * h) / RAW_SCALE) * 100}%`;
       if (f.pinchRaws[finger] < f.pinchRaws[closest]) closest = finger;
     }
-    c.r.pinchRaws.value.textContent = `${closest[0]} ${fmt(f.pinchRaws[closest], 2)}`;
+    setDigits(c.r.pinchRaws, `${closest[0]} ${fmt(f.pinchRaws[closest], 2)}`);
     setBar(c.r.openness, f.openness, fmt(f.openness));
     f.curls.forEach((v, i) => setBar(c.r.curls[i]!, v, fmt(v)));
     const tiltFrac = f.tilt / Math.PI / 2; // -0.5..0.5 of the bar, drawn from centre
     c.r.tilt.fill.style.left = tiltFrac >= 0 ? '50%' : `${(0.5 + tiltFrac) * 100}%`;
     c.r.tilt.fill.style.width = `${Math.abs(tiltFrac) * 100}%`;
-    c.r.tilt.value.textContent = `${fmt((f.tilt * 180) / Math.PI, 1)}°`;
+    setDigits(c.r.tilt, `${fmt((f.tilt * 180) / Math.PI, 1)}°`);
     setBar(c.r.span, f.span / 0.6, fmt(f.span));
     setBar(c.r.centroid, 0, `${fmt(f.centroid.x, 2)},${fmt(f.centroid.y, 2)}`);
 
@@ -1510,6 +1788,11 @@ function renderReadout(): void {
       // amber while this pose is the held one, green once its event has fired
       ref.row.className = `row${m.name === st.pose ? (st.poseProgress >= 1 ? ' fired' : ' held') : ''}`;
     });
+  }
+
+  if (sliderLive.length > 0 && shows('tuning')) {
+    const hands = LABELS.map((l) => core.getFeatures(l)).filter((x): x is Features => x !== null);
+    for (const mark of sliderLive) mark(hands);
   }
 }
 
@@ -1640,7 +1923,23 @@ type SliderSpec = {
   step: number;
   log?: boolean;
   title?: string;
+  /** The readings this value is a threshold on, in the value's own units. One needle each. */
+  live?: (f: Features) => number[];
 };
+
+/** Only the fingers the thumb is allowed to pinch: a needle for a disabled one is noise. */
+function pinchRawsLive(f: Features): number[] {
+  return core.getConfig().pinch.fingers.map((finger) => f.pinchRaws[finger]);
+}
+
+/** The four fingers' joint bends, in the radians the curl thresholds are set in. */
+function fingerAnglesLive(f: Features): number[] {
+  return f.bends.slice(1);
+}
+
+function thumbAngleLive(f: Features): number[] {
+  return f.bends.slice(0, 1);
+}
 
 const SLIDER_GROUPS: { legend: string; specs: SliderSpec[] }[] = [
   {
@@ -1654,8 +1953,8 @@ const SLIDER_GROUPS: { legend: string; specs: SliderSpec[] }[] = [
   {
     legend: 'Pinch (thresholds on pinchRaw)',
     specs: [
-      { path: ['pinch', 'closed'], label: 'closed', min: 0, max: 1, step: 0.005 },
-      { path: ['pinch', 'open'], label: 'open', min: 0, max: 2, step: 0.005 },
+      { path: ['pinch', 'closed'], label: 'closed', min: 0, max: 1, step: 0.005, live: pinchRawsLive },
+      { path: ['pinch', 'open'], label: 'open', min: 0, max: 2, step: 0.005, live: pinchRawsLive },
       { path: ['pinch', 'hysteresis'], label: 'hysteresis h', min: 0, max: 0.3, step: 0.005, title: 'Closes below closed+h, releases above closed+3h' },
     ],
   },
@@ -1670,10 +1969,10 @@ const SLIDER_GROUPS: { legend: string; specs: SliderSpec[] }[] = [
   {
     legend: 'Curl mapping (radians) and pose scoring',
     specs: [
-      { path: ['curl', 'straight'], label: 'finger straight', min: 0, max: Math.PI, step: 0.01 },
-      { path: ['curl', 'bent'], label: 'finger bent', min: 0, max: Math.PI, step: 0.01 },
-      { path: ['curl', 'thumbStraight'], label: 'thumb straight', min: 0, max: Math.PI, step: 0.01 },
-      { path: ['curl', 'thumbBent'], label: 'thumb bent', min: 0, max: Math.PI, step: 0.01 },
+      { path: ['curl', 'straight'], label: 'finger straight', min: 0, max: Math.PI, step: 0.01, live: fingerAnglesLive },
+      { path: ['curl', 'bent'], label: 'finger bent', min: 0, max: Math.PI, step: 0.01, live: fingerAnglesLive },
+      { path: ['curl', 'thumbStraight'], label: 'thumb straight', min: 0, max: Math.PI, step: 0.01, live: thumbAngleLive },
+      { path: ['curl', 'thumbBent'], label: 'thumb bent', min: 0, max: Math.PI, step: 0.01, live: thumbAngleLive },
       { path: ['poseFalloff'], label: 'pose falloff', min: 0.01, max: 1, step: 0.01 },
     ],
   },
@@ -1741,7 +2040,11 @@ function buildSliders(): void {
     for (const spec of group.specs) {
       const range = el('input', { type: 'range', min: '0', max: '1000', step: '1', title: spec.title ?? '' });
       const num = el('input', { type: 'number', min: String(spec.min), max: String(spec.max), step: String(spec.step) });
-      const row = el('div', { className: 'ctl', title: spec.title ?? '' }, [el('label', { textContent: spec.label }), range, num]);
+      // A slider that governs a live reading gets that reading on its own track, so the
+      // handle is dragged against the thing it cuts rather than against a bare number.
+      const needles = spec.live ? el('div', { className: 'needles' }) : null;
+      const middle = needles ? el('div', { className: 'track' }, [range, needles]) : range;
+      const row = el('div', { className: 'ctl', title: spec.title ?? '' }, [el('label', { textContent: spec.label }), middle, num]);
 
       const toRange = (v: number) =>
         spec.log
@@ -1769,6 +2072,18 @@ function buildSliders(): void {
         sync();
       });
       sliderRefresh.push(sync);
+      if (needles && spec.live) {
+        const read = spec.live;
+        sliderLive.push((hands) => {
+          const marks = hands.flatMap(read);
+          while (needles.childElementCount < marks.length) needles.append(el('i'));
+          while (needles.childElementCount > marks.length) needles.lastElementChild!.remove();
+          marks.forEach((v, i) => {
+            const pct = Math.max(0, Math.min(100, toRange(v) / 10));
+            (needles.children[i] as HTMLElement).style.left = `${pct}%`;
+          });
+        });
+      }
       fs.append(row);
     }
     root.append(fs);
@@ -2467,11 +2782,11 @@ const PANELS: { id: string; title: string }[] = [
   { id: 'gestures', title: 'Gestures' },
   { id: 'sound', title: 'Sound' },
   { id: 'head', title: 'Head' },
+  { id: 'chords', title: 'Chords' },
   { id: 'reliability', title: 'Reliability' },
   { id: 'fixtures', title: 'Fixtures' },
   { id: 'source', title: 'Source' },
   { id: 'field', title: 'Field' },
-  { id: 'docs', title: 'Docs' },
 ];
 
 const bodies = new Map(
@@ -2518,6 +2833,7 @@ const dock: DockviewApi = createDockview($('dock'), {
           visible.set(options.name, e.isVisible);
           backdrop.sync();
           if (!e.isVisible) return;
+          forceDigits();
           draw();
           renderReadout();
         });
@@ -2542,7 +2858,7 @@ function defaultLayout(): void {
   add('tuning', { referencePanel: 'hand-right', direction: 'right' });
   add('events', { referencePanel: 'stage', direction: 'below' });
   add('hand-left', { referencePanel: 'hand-right', direction: 'below' });
-  for (const id of ['moves', 'gestures', 'sound', 'head', 'reliability', 'fixtures', 'source', 'field', 'docs']) {
+  for (const id of ['moves', 'gestures', 'sound', 'head', 'chords', 'reliability', 'fixtures', 'source', 'field']) {
     add(id, { referencePanel: 'tuning', direction: 'within' });
   }
   const w = window.innerWidth;
@@ -2581,6 +2897,85 @@ function openPanel(id: string): void {
 }
 
 // Panels menu: a view menu. A filled mark means the panel is open; clicking toggles it.
+// ── workspaces ───────────────────────────────────────────────────────────────
+
+/**
+ * Where a saved workspace lives.
+ *
+ * Two backends today: files in the project while the dev server is running, and this
+ * browser otherwise. Which one is in use is decided once at startup and shown in the
+ * menu, because "saved" means something different in each — a file survives a cleared
+ * browser and can be committed; a browser entry cannot.
+ *
+ * Deployed, the folder is the wrong place: someone using the published bench has not
+ * cloned anything. That is a third implementation of this interface rather than a
+ * change to the menu, which is why the menu never mentions files or localStorage
+ * except through `where`.
+ */
+type WorkspaceStore = {
+  /** Shown to the user, so they know what "saved" bought them. */
+  readonly where: string;
+  list(): Promise<string[]>;
+  read(name: string): Promise<SerializedDockview | null>;
+  write(name: string, layout: SerializedDockview): Promise<void>;
+  remove(name: string): Promise<void>;
+};
+
+const WS_ENDPOINT = '/__workspaces';
+
+const fileStore: WorkspaceStore = {
+  where: 'bench/workspaces/',
+  async list() {
+    const res = await fetch(WS_ENDPOINT);
+    return res.ok ? ((await res.json()) as string[]) : [];
+  },
+  async read(name) {
+    const res = await fetch(`${WS_ENDPOINT}/${encodeURIComponent(name)}`);
+    return res.ok ? ((await res.json()) as SerializedDockview) : null;
+  },
+  async write(name, layout) {
+    const res = await fetch(`${WS_ENDPOINT}/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(layout),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  },
+  async remove(name) {
+    await fetch(`${WS_ENDPOINT}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  },
+};
+
+const browserStore: WorkspaceStore = {
+  where: 'this browser only',
+  async list() {
+    return (load<string[]>(LS.workspaces) ?? []).slice().sort();
+  },
+  async read(name) {
+    return load<SerializedDockview>(`${LS.workspaces}.${name}`) ?? null;
+  },
+  async write(name, layout) {
+    save(`${LS.workspaces}.${name}`, layout);
+    const names = load<string[]>(LS.workspaces) ?? [];
+    if (!names.includes(name)) save(LS.workspaces, [...names, name]);
+  },
+  async remove(name) {
+    localStorage.removeItem(`${LS.workspaces}.${name}`);
+    save(LS.workspaces, (load<string[]>(LS.workspaces) ?? []).filter((n) => n !== name));
+  },
+};
+
+/** Files when the dev server answers, this browser otherwise. Asked once. */
+let workspaces: WorkspaceStore = browserStore;
+const workspacesReady = (async () => {
+  try {
+    const res = await fetch(WS_ENDPOINT);
+    if (res.ok) workspaces = fileStore;
+  } catch {
+    // no dev server: the published bench, which keeps them in the browser for now
+  }
+})();
+
 const panelMenu = (() => {
   const button = $('btnPanels');
   const pop = $('panelMenuList');
@@ -2599,7 +2994,88 @@ const panelMenu = (() => {
     defaultLayout();
     refresh();
   });
-  pop.append(...rows.map((r) => r.row), el('div', { className: 'sep' }), reset);
+  // ── saved workspaces ──
+  const wsRows = el('div');
+  const wsName = el('input', { type: 'text', className: 'wsname', placeholder: 'Name this layout' });
+  const wsSave = el('button', { type: 'button', className: 'plain' }, ['Save current layout']);
+  const wsWhere = el('div', { className: 'wswhere' });
+  pop.append(
+    ...rows.map((r) => r.row),
+    el('div', { className: 'sep' }),
+    reset,
+    el('div', { className: 'sep' }),
+    wsRows,
+    wsName,
+    wsSave,
+    wsWhere,
+  );
+
+  async function refreshWorkspaces(): Promise<void> {
+    await workspacesReady;
+    wsWhere.textContent = `Saved in ${workspaces.where}`;
+    let names: string[] = [];
+    try {
+      names = await workspaces.list();
+    } catch {
+      wsWhere.textContent = 'Could not read saved layouts';
+    }
+    wsRows.replaceChildren(
+      ...(names.length ? [] : [el('div', { className: 'wsempty', textContent: 'No layouts saved yet' })]),
+      ...names.map((n) => {
+        const open = el('button', { type: 'button', className: 'wsopen' }, [n]);
+        open.addEventListener('click', async () => {
+          const layout = await workspaces.read(n);
+          if (!layout) return;
+          try {
+            dock.fromJSON(layout);
+          } catch {
+            defaultLayout();
+          }
+          refresh();
+        });
+        // Two clicks rather than a dialog: a layout you arranged is worth a second of doubt,
+        // and a modal here would block the whole bench.
+        const del = el('button', { type: 'button', className: 'wsdel', title: `Delete ${n}` }, ['\u2715']);
+        let armed = false;
+        del.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (!armed) {
+            armed = true;
+            del.textContent = 'delete?';
+            del.classList.add('armed');
+            setTimeout(() => {
+              armed = false;
+              del.textContent = '\u2715';
+              del.classList.remove('armed');
+            }, 2500);
+            return;
+          }
+          await workspaces.remove(n);
+          await refreshWorkspaces();
+        });
+        return el('div', { className: 'wsrow' }, [open, del]);
+      }),
+    );
+  }
+
+  wsSave.addEventListener('click', async () => {
+    const name = wsName.value.trim();
+    if (!name) {
+      wsName.focus();
+      return;
+    }
+    await workspacesReady;
+    try {
+      await workspaces.write(name, dock.toJSON());
+      wsName.value = '';
+      await refreshWorkspaces();
+    } catch (err) {
+      wsWhere.textContent = (err as Error).message;
+    }
+  });
+  wsName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') wsSave.click();
+  });
 
   function refresh(): void {
     for (const r of rows) r.row.classList.toggle('on', !!dock.getPanel(r.id));
@@ -2610,6 +3086,7 @@ const panelMenu = (() => {
     pop.hidden = !open;
     button.setAttribute('aria-expanded', String(open));
     if (!open) return;
+    void refreshWorkspaces();
     const r = button.getBoundingClientRect();
     pop.style.top = `${Math.round(r.bottom + 4)}px`;
     pop.style.right = `${Math.max(4, Math.round(window.innerWidth - r.right))}px`;
@@ -2633,15 +3110,6 @@ const panelMenu = (() => {
 })();
 panelMenu.refresh();
 
-$('btnDocs').addEventListener('click', () => openPanel('docs'));
-
-// In-page doc links scroll the docs panel without touching the URL.
-bodies.get('docs')!.addEventListener('click', (e) => {
-  const link = (e.target as HTMLElement).closest<HTMLAnchorElement>('a[href^="#doc-"]');
-  if (!link) return;
-  e.preventDefault();
-  document.getElementById(link.getAttribute('href')!.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
 
 $('btnCamera').addEventListener('click', () => (running ? stopCamera() : void startCamera()));
 $('btnClearLog').addEventListener('click', () => {
@@ -2662,6 +3130,7 @@ window.addEventListener('keydown', (e) => {
     core.reset();
     smoothers.clear();
     headBrick.reset();
+    chordBrick.reset();
   }
   if (e.key === ' ') {
     // Space would also press whichever button has focus, such as Stop camera.
@@ -2691,7 +3160,7 @@ draw();
   };
   badge.textContent = label[__BENCH_ENV__] ?? __BENCH_ENV__;
   badge.classList.toggle('live', __BENCH_ENV__ === 'production');
-  const versions = `bench v${__BENCH_VERSION__} · gesturecore ${__CORE_VERSION__} · gesturecore-sound ${__SOUND_VERSION__} · gesturecore-head ${__HEAD_VERSION__}`;
+  const versions = `bench v${__BENCH_VERSION__} · gesturecore ${__CORE_VERSION__} · gesturecore-sound ${__SOUND_VERSION__} · gesturecore-head ${__HEAD_VERSION__} · gesturecore-chords ${__CHORDS_VERSION__}`;
   badge.title =
     __BENCH_ENV__ === 'production'
       ? `The published bench.\n${versions}`
@@ -2790,7 +3259,8 @@ if (new URLSearchParams(location.search).has('selftest')) {
 // `?head` switches the head reader on at load (with `?demo`, on the demo face).
 if (new URLSearchParams(location.search).has('head')) $('headPower').click();
 
-// `?panel=docs` (or any panel id) brings that panel forward on load.
+// `?panel=chords` (or any panel id) brings that panel forward on load. An id that is
+// not a panel is ignored, which is what an old `?panel=docs` link now does.
 {
   const wanted = new URLSearchParams(location.search).get('panel');
   if (wanted && PANELS.some((p) => p.id === wanted)) openPanel(wanted);

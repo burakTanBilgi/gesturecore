@@ -3,4 +3,6 @@ dist/
 site/
 .vercel/
 bench/models/*.task
+# saved bench layouts are yours, not the project's; the folder's README is tracked
+bench/workspaces/*.json
 *.log

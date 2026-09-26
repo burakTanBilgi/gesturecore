@@ -1,0 +1,70 @@
+/*
+  Shared by the bench and the manual. Tokens, the reset, the type and the backdrop —
+  everything both pages must agree on. Anything only one page has stays on that page.
+*/
+
+/*
+  Colour is functional here. Six meanings, used everywhere (canvas, bars, log, docs):
+    data    a live measurement
+    pending a condition is met and a timer is charging
+    active  engaged, pinching, fired
+    fault   lost, failed, unintended
+    limit   a threshold or value you set
+    raw     unfiltered input, disabled, off
+  Chrome (frames, labels, tabs) stays neutral steel so it never competes.
+*/
+:root {
+  --bg: #04080c;
+  --bg-2: rgba(8, 19, 26, 0.72);
+  --bg-3: rgba(12, 26, 34, 0.55);
+  --frame: rgba(104, 158, 172, 0.22);
+  --frame-hi: rgba(128, 196, 212, 0.45);
+  --text: #cfe3e8;
+  --muted: #7b9aa4;
+
+  /* interaction only — never a measurement. cyan = clickable, violet = surface */
+  --glow-action: rgba(79, 209, 224, 0.55);
+  --glow-surface: rgba(140, 120, 255, 0.4);
+  --r: 7px;
+  --r-sm: 4px;
+
+  --data: #4fd1e0;
+  --pending: #ffb13e;
+  --active: #35e08a;
+  --fault: #ff5064;
+  --limit: #eef7f9;
+  --raw: #55747e;
+
+  --mono: 'Cascadia Mono', Consolas, 'SF Mono', 'DejaVu Sans Mono', monospace;
+  --ui: Bahnschrift, 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 300 12px/1.45 var(--ui);
+  letter-spacing: 0.015em;
+}
+.mono, code, kbd, .v, #log { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 300; }
+b, strong { font-weight: 500; }
+
+/* the static grid over everything; the bench adds a blurred canvas under it */
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(126, 209, 224, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(126, 209, 224, 0.028) 1px, transparent 1px);
+  background-size: 46px 46px, 46px 46px;
+}
+
+/* scrollbars: thin, square, neutral */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
+::-webkit-scrollbar-thumb { background: #1d3a44; border: 1px solid var(--frame); }
+::-webkit-scrollbar-thumb:hover { background: var(--frame-hi); }
+::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: #1d3a44 transparent; }
+}

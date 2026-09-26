@@ -1,10 +1,13 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 const FIXTURES = here('./packages/core/test/fixtures/');
+// Saved bench workspaces. In the project for now; the bench treats this as one storage
+// backend behind an interface, so a deployed bench can swap it for another.
+const WORKSPACES = here('./bench/workspaces/');
 const source = (pkg: string) => here(`./packages/${pkg}/src/index.ts`);
 const require = createRequire(import.meta.url);
 /** Semver of the project (root) and of each package, for the bench's header badge. */
@@ -14,6 +17,7 @@ const versions = {
   core: versionOf('./packages/core/package.json'),
   sound: versionOf('./packages/sound/package.json'),
   head: versionOf('./packages/head/package.json'),
+  chords: versionOf('./packages/chords/package.json'),
 };
 
 /**
@@ -193,8 +197,89 @@ function saveFixtures(): Plugin {
   };
 }
 
+
+/**
+ * Only the bench itself may reach an endpoint that writes into the project. A foreign
+ * page open in the same browser could otherwise post here, so: reject anything that is
+ * not same-origin, and require a JSON content type, which a cross-site page cannot send
+ * without a CORS preflight this server never grants. Unlike the fixtures endpoint this
+ * does not pin a port — the bench moves to 5174 when 5173 is taken, and a guard that
+ * silently rejects the real port is worse than no guard, because it looks like a bug.
+ */
+function fromTheBench(req: { method?: string; headers: Record<string, unknown> }, needsJson: boolean): boolean {
+  const site = req.headers['sec-fetch-site'];
+  if (site !== undefined && site !== 'same-origin') return false;
+  const origin = req.headers.origin as string | undefined;
+  if (origin !== undefined && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return false;
+  const type = String(req.headers['content-type'] ?? '');
+  return !needsJson || type.startsWith('application/json');
+}
+
+/** Workspaces on disk: list, read, write, delete. Dev only — `apply: 'serve'`. */
+function saveWorkspaces(): Plugin {
+  return {
+    name: 'gesturecore-workspaces',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/__workspaces', (req, res) => {
+        const name = decodeURIComponent((req.url ?? '').replace(/^\//, '').split('?')[0] ?? '');
+        const ok = (body: string) => {
+          res.setHeader('content-type', 'application/json');
+          res.end(body);
+        };
+        const fail = (code: number, why: string) => {
+          res.statusCode = code;
+          res.end(why);
+        };
+        const method = req.method ?? 'GET';
+
+        if (!fromTheBench(req as never, method === 'POST')) return fail(403, 'forbidden');
+        mkdirSync(WORKSPACES, { recursive: true });
+
+        // A name becomes a filename, so it is checked rather than escaped.
+        const named = /^[a-zA-Z0-9][a-zA-Z0-9 _-]{0,39}$/.test(name);
+
+        if (method === 'GET' && name === '') {
+          const list = readdirSync(WORKSPACES)
+            .filter((f) => f.endsWith('.json'))
+            .map((f) => f.slice(0, -5));
+          return ok(JSON.stringify(list));
+        }
+        if (!named) return fail(400, 'bad name');
+        const file = `${WORKSPACES}${name}.json`;
+
+        if (method === 'GET') {
+          if (!existsSync(file)) return fail(404, 'no such workspace');
+          return ok(readFileSync(file, 'utf8'));
+        }
+        if (method === 'DELETE') {
+          rmSync(file, { force: true });
+          return ok('{"ok":true}');
+        }
+        if (method !== 'POST') return fail(405, 'method not allowed');
+
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk;
+          if (body.length > 400_000) req.destroy();
+        });
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body) as unknown;
+            if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new Error('expected a JSON object');
+            writeFileSync(file, JSON.stringify(data, null, 2) + '\n');
+            ok(JSON.stringify({ saved: `bench/workspaces/${name}.json` }));
+          } catch (err) {
+            fail(400, String(err));
+          }
+        });
+      });
+    },
+  };
+}
+
 export default defineConfig(({ command }) => ({
-  plugins: [dockviewCss(), quietMediapipeSourcemap(), saveFixtures(), hostMediapipe()],
+  plugins: [dockviewCss(), quietMediapipeSourcemap(), saveFixtures(), saveWorkspaces(), hostMediapipe()],
   define: {
     __BENCH_ENV__: JSON.stringify(benchEnv(command).env),
     __BENCH_REF__: JSON.stringify(benchEnv(command).ref),
@@ -202,12 +287,17 @@ export default defineConfig(({ command }) => ({
     __CORE_VERSION__: JSON.stringify(versions.core),
     __SOUND_VERSION__: JSON.stringify(versions.sound),
     __HEAD_VERSION__: JSON.stringify(versions.head),
+    __CHORDS_VERSION__: JSON.stringify(versions.chords),
   },
-  // The published site: the redirecting root page and the bench.
+  // The published site: the redirecting root page, the bench and the manual. The manual
+  // is its own page rather than a dock panel — a reference document should not compete
+  // for space with live instruments, and keeping it out halves the bench's markup.
   build: {
     outDir: 'site',
     emptyOutDir: true,
-    rollupOptions: { input: { index: here('./index.html'), bench: here('./bench/index.html') } },
+    rollupOptions: {
+      input: { index: here('./index.html'), bench: here('./bench/index.html'), docs: here('./bench/docs.html') },
+    },
   },
   preview: { host: '127.0.0.1', port: 4173, strictPort: true, headers: siteHeaders() },
   // The bench runs the packages from source, so edits show up without a build.
@@ -216,6 +306,7 @@ export default defineConfig(({ command }) => ({
       { find: /^gesturecore$/, replacement: source('core') },
       { find: /^gesturecore-sound$/, replacement: source('sound') },
       { find: /^gesturecore-head$/, replacement: source('head') },
+      { find: /^gesturecore-chords$/, replacement: source('chords') },
     ],
   },
   // The bench's only two libraries already ship as plain ES modules, so they are served

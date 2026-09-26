@@ -17,6 +17,7 @@ package is a *brick*: optional, independent, and something the core never knows 
 | [`gesturecore`](packages/core) | pinches, poses and movements from 21 hand landmarks; learning gestures from demonstrations | nothing |
 | [`gesturecore-sound`](packages/sound) | synthesized sound cues for gesture events, and hand-controlled voices such as a theremin | `gesturecore` types only |
 | [`gesturecore-head`](packages/head) | a head and face reader: turns, nods, shakes, blinks, winks, raised brows, mouth, smile | `gesturecore` (its filter and stroke detector) |
+| [`gesturecore-chords`](packages/chords) | chords from two hands: one counts the letter on its fingers, the other says how it is played | `gesturecore` types only |
 
 Planned bricks: visuals that react to hands and faces.
 
@@ -60,6 +61,24 @@ for (const e of head.update(faceFromMediaPipe(faceResult), t)) {
 
 Full documentation: [packages/head](packages/head#readme).
 
+## Playing chords
+
+```ts
+import { ChordReader, readerFor } from 'gesturecore-chords';
+
+const chords = new ChordReader();
+const read = readerFor(core);
+for (const e of chords.update(read, t)) {
+  if (e.type === 'chord:start') sound.holdNotes(e.chord.notes);
+  if (e.type === 'chord:end') sound.holdNotes([]);
+}
+```
+
+One hand counts the letter on its fingers; the other pinches its middle finger for minor.
+Tilting the note hand sharpens. Every shape is config, so none of that is fixed.
+
+Full documentation: [packages/chords](packages/chords#readme).
+
 ## The bench
 
 A tuning workbench for all of it: live camera, every measurement and timer, a slider
@@ -76,7 +95,7 @@ synthetic face that nods, shakes, tilts, blinks and raises its brows.
 
 ![The Head panel: the demo face tilting right, with its angles, eyes, expression timers and the log](docs/screenshots/head.png)
 
-![The built-in docs panel](docs/screenshots/docs.png)
+![The manual](docs/screenshots/docs.png)
 
 ```bash
 npm install
@@ -84,7 +103,8 @@ npm run fetch-model     # MediaPipe hand and face models, 7.8 + 3.8 MB, not in g
 npm run bench           # opens http://127.0.0.1:5173/bench/
 ```
 
-The built-in **Docs** panel explains the whole system.
+**Docs** in the header opens the manual, which explains the whole system. It is a page of
+its own rather than a panel, so you can keep it beside the bench instead of in place of it.
 
 ## Versions
 
