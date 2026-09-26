@@ -45,12 +45,12 @@ export function extractFeatures(landmarks: readonly Landmark[], opts: ExtractOpt
   const pinchRaw = pinchRaws.index;
   const pinch = unlerp(pinchRaw, opts.pinch.closed, opts.pinch.open);
 
-  const curls = CURL_CHAINS.map(([a, b, c], finger) => {
-    const bend = jointBend(at(a), at(b), at(c));
-    return finger === 0
+  const bends = CURL_CHAINS.map(([a, b, c]) => jointBend(at(a), at(b), at(c)));
+  const curls = bends.map((bend, finger) =>
+    finger === 0
       ? unlerp(bend, opts.curl.thumbStraight, opts.curl.thumbBent)
-      : unlerp(bend, opts.curl.straight, opts.curl.bent);
-  });
+      : unlerp(bend, opts.curl.straight, opts.curl.bent),
+  );
 
   const openness = clamp(1 - (curls[1]! + curls[2]! + curls[3]! + curls[4]!) / 4, 0, 1);
 
@@ -74,5 +74,6 @@ export function extractFeatures(landmarks: readonly Landmark[], opts: ExtractOpt
     span,
     pinchRaw,
     pinchRaws,
+    bends,
   };
 }

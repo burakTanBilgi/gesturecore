@@ -14,7 +14,7 @@ const pinch = loadFixture('pinch');
 
 /** Features that must not change when the hand moves, scales or rotates in the image plane. */
 function invariant(x: Features) {
-  return { pinch: x.pinch, pinchRaws: Object.values(x.pinchRaws), openness: x.openness, curls: x.curls };
+  return { pinch: x.pinch, pinchRaws: Object.values(x.pinchRaws), openness: x.openness, curls: x.curls, bends: x.bends };
 }
 
 function expectClose(a: object, b: object, digits = 9) {
@@ -27,9 +27,10 @@ function expectClose(a: object, b: object, digits = 9) {
 describe('extractFeatures: shape and contract', () => {
   it('returns exactly the public feature keys', () => {
     expect(Object.keys(f(open)).sort()).toEqual(
-      ['centroid', 'curls', 'openness', 'pinch', 'pinchRaw', 'pinchRaws', 'span', 'tilt'].sort(),
+      ['bends', 'centroid', 'curls', 'openness', 'pinch', 'pinchRaw', 'pinchRaws', 'span', 'tilt'].sort(),
     );
     expect(f(open).curls).toHaveLength(5);
+    expect(f(open).bends).toHaveLength(5);
     expect(Object.keys(f(open).pinchRaws)).toEqual(['index', 'middle', 'ring', 'pinky']);
   });
 
@@ -215,6 +216,26 @@ describe('extractFeatures: curl mapping', () => {
     expect(f(pts).curls[1]).toBeCloseTo(1, 9);
     pts[8] = { x: pip.x, y: pip.y - 0.05, z: mcp.z };
     expect(f(pts).curls[1]).toBe(0);
+  });
+
+  it('bends is the joint angle the curl was mapped from, in radians', () => {
+    const pts = open.map((p) => ({ ...p }));
+    const mcp = pts[5]!;
+    const pip = { x: mcp.x, y: mcp.y - 0.05, z: mcp.z };
+    pts[6] = pip;
+    const a = opts.curl.bent;
+    pts[8] = { x: pip.x + Math.sin(a) * 0.05, y: pip.y - Math.cos(a) * 0.05, z: mcp.z };
+    expect(f(pts).bends[1]).toBeCloseTo(a, 9);
+    pts[8] = { x: pip.x, y: pip.y - 0.05, z: mcp.z };
+    expect(f(pts).bends[1]).toBeCloseTo(0, 9);
+  });
+
+  it('bends ignores the curl thresholds, so it can be read against them', () => {
+    const wide = mergeConfig(opts, { curl: { straight: 0.5, bent: 1.2, thumbStraight: 0.4, thumbBent: 0.9 } });
+    expect(f(open, wide).bends).toEqual(f(open).bends);
+    expect(f(fist, wide).bends).toEqual(f(fist).bends);
+    // and the mapping it feeds really did change, or the test above proves nothing
+    expect(f(fist, wide).curls).not.toEqual(f(fist).curls);
   });
 
   it('uses joint 3 for the thumb', () => {

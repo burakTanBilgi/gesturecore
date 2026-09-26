@@ -49,6 +49,11 @@ export type Features = {
   /** Per finger, 0 = straight, 1 = fully bent, thumb→pinky. */
   curls: number[];
   /**
+   * Radians, the joint bend each curl was mapped from, thumb→pinky. What the curl
+   * thresholds compare against, and unclamped — so a finger past `bent` reads past it.
+   */
+  bends: number[];
+  /**
    * Radians, palm rotation in the image plane: direction of wrist → middle MCP.
    * 0 = fingers pointing up the frame, positive = rotated toward +x. Range (-π, π].
    */
