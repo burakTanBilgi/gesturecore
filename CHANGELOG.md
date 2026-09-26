@@ -61,7 +61,6 @@ gesturecore-chords are new, at 0.1.0.
   clone the project to keep a layout.
 - Bench: **Tuning → Readouts** sets how often the digits are allowed to change, once a
   second by default.
-
 - **gesturecore-head** (new package, 0.1.0): a head and face reader built as a brick.
   - Head yaw, pitch and roll come from a least-squares fit of MediaPipe's canonical face
     to expression-free landmarks.
