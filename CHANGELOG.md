@@ -101,6 +101,14 @@ gesturecore-chords are new, at 0.1.0.
 - `npm run fetch-model` also fetches the MediaPipe face model (3.8 MB, pinned by
   SHA-256), and the site hosts it.
 
+### Fixed
+
+- `npm run build` works. `gesturecore-sound` and `gesturecore-head` typed their builds
+  against the core's *source*, which pulled `.ts` from outside their `rootDir`: TS6059,
+  no output, and — worse, because it was silent — stray `.js` and `.d.ts` left next to
+  the core's own sources by the failed run. They now build against the core's built
+  types, the same one-line `paths` fix `gesturecore-chords` already had.
+
 ### Changed
 
 - Bench: the hand and face models share one MediaPipe runtime load.
