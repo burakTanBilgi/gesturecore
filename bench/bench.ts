@@ -34,6 +34,7 @@ import {
   type MotionAxis,
   type MotionDescription,
   type PinchFinger,
+  type FingerName,
   type PoseDescription,
   type MotionFit,
   type MotionSample,
@@ -44,6 +45,7 @@ import {
   bestPose,
   extractFeatures,
   matchPoses,
+  parsePoses,
 } from 'gesturecore';
 import {
   ChordReader,
@@ -104,6 +106,7 @@ const LS = {
   // one, so it would otherwise miss a new panel, or name a panel that no longer exists.
   layout: 'gesturecore.bench.layout.v3',
   workspaces: 'gesturecore.bench.workspaces.v1',
+  poses: 'gesturecore.bench.poses.v1',
   sessions: 'gesturecore.bench.sessions.v1',
 };
 
@@ -123,6 +126,90 @@ function save(key: string, value: unknown): void {
     /* storage unavailable: settings just won't persist */
   }
 }
+
+// Declared here, above every use: the pose library builds itself during module init,
+// and a `const` further down the file is still in its temporal dead zone at that point.
+/**
+ * A folder of named JSON documents. Workspaces and pose packs are the same shape over
+ * different folders, so they share one implementation — and one story about where
+ * things are kept, which is what the `where` line tells the person.
+ */
+type JsonStore<T> = {
+  /** Shown to the user, so they know what "saved" bought them. */
+  readonly where: string;
+  list(): Promise<string[]>;
+  read(name: string): Promise<T | null>;
+  write(name: string, value: T): Promise<void>;
+  remove(name: string): Promise<void>;
+};
+
+function fileStore<T>(endpoint: string, where: string): JsonStore<T> {
+  const at = (name: string) => `${endpoint}/${encodeURIComponent(name)}`;
+  return {
+    where,
+    async list() {
+      const res = await fetch(endpoint);
+      return res.ok ? ((await res.json()) as string[]) : [];
+    },
+    async read(name) {
+      const res = await fetch(at(name));
+      return res.ok ? ((await res.json()) as T) : null;
+    },
+    async write(name, value) {
+      const res = await fetch(at(name), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(value),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    },
+    async remove(name) {
+      await fetch(at(name), { method: 'DELETE' });
+    },
+  };
+}
+
+function browserStore<T>(key: string): JsonStore<T> {
+  return {
+    where: 'this browser only',
+    async list() {
+      return (load<string[]>(key) ?? []).slice().sort();
+    },
+    async read(name) {
+      return load<T>(`${key}.${name}`) ?? null;
+    },
+    async write(name, value) {
+      save(`${key}.${name}`, value);
+      const names = load<string[]>(key) ?? [];
+      if (!names.includes(name)) save(key, [...names, name]);
+    },
+    async remove(name) {
+      localStorage.removeItem(`${key}.${name}`);
+      save(key, (load<string[]>(key) ?? []).filter((n) => n !== name));
+    },
+  };
+}
+
+/**
+ * Files when the dev server answers, this browser otherwise. Asked once per folder.
+ * The folder is today's backend, not the design: a deployed bench swaps what comes back
+ * here without any of the panel code knowing.
+ */
+function storeFor<T>(endpoint: string, where: string, key: string): { get(): JsonStore<T>; ready: Promise<void> } {
+  let store: JsonStore<T> = browserStore<T>(key);
+  const ready = (async () => {
+    try {
+      const res = await fetch(endpoint);
+      if (res.ok) store = fileStore<T>(endpoint, where);
+    } catch {
+      // no dev server: the published bench, which keeps them in the browser for now
+    }
+  })();
+  return { get: () => store, ready };
+}
+
+const workspaceStore = storeFor<SerializedDockview>('/__workspaces', 'bench/workspaces/', LS.workspaces);
+const poseStore = storeFor<unknown>('/__poses', 'bench/poses/', LS.poses);
 
 type BenchSettings = {
   /** How often the readouts' digits are allowed to change, in Hz. 0 holds them. */
@@ -2164,30 +2251,16 @@ $('btnImportApply').addEventListener('click', () => {
 
 // ── poses editor ─────────────────────────────────────────────────────────────
 
+/**
+ * One rule for what a pose is, wherever it came from: the JSON editor, a pack from the
+ * library, a paste. `parsePoses` is the core's own reader and the stricter of the two
+ * this bench used to have — it refuses unknown keys, dangerous ones, and names that
+ * could be markup. Here it is adapted to throw, because the editor shows one message.
+ */
 function validatePoses(value: unknown): PoseDescription[] {
-  if (!Array.isArray(value)) throw new Error('poses must be a JSON array');
-  const fingers = new Set(FINGER_NAMES);
-  const names = new Set<string>();
-  value.forEach((p, i) => {
-    const where = `pose ${i}`;
-    if (typeof p !== 'object' || p === null) throw new Error(`${where}: not an object`);
-    const pose = p as Record<string, unknown>;
-    if (typeof pose.name !== 'string' || pose.name === '') throw new Error(`${where}: name must be a non-empty string`);
-    if (names.has(pose.name)) throw new Error(`${where}: duplicate name "${pose.name}"`);
-    names.add(pose.name);
-    if (typeof pose.fingers !== 'object' || pose.fingers === null) throw new Error(`${pose.name}: fingers must be an object`);
-    for (const [finger, spec] of Object.entries(pose.fingers)) {
-      if (!fingers.has(finger)) throw new Error(`${pose.name}: unknown finger "${finger}"`);
-      const curl = (spec as { curl?: unknown }).curl;
-      if (curl !== undefined && !(Array.isArray(curl) && curl.length === 2 && curl.every((n) => typeof n === 'number' && n >= 0 && n <= 1))) {
-        throw new Error(`${pose.name}.${finger}.curl must be [min, max] within 0..1`);
-      }
-    }
-    if (pose.minScore !== undefined && !(typeof pose.minScore === 'number' && pose.minScore >= 0 && pose.minScore <= 1)) {
-      throw new Error(`${pose.name}: minScore must be within 0..1`);
-    }
-  });
-  return value as PoseDescription[];
+  const { poses, problems } = parsePoses(value);
+  if (problems.length > 0) throw new Error(problems.join('; '));
+  return poses;
 }
 
 $('btnPosesApply').addEventListener('click', () => {
@@ -2205,6 +2278,120 @@ $('btnPosesReset').addEventListener('click', () => {
   refreshAll();
   flash('posesMsg', 'Default poses restored.');
 });
+
+
+// ── pose library: packs of poses on disk, read in full before they are installed ──
+
+/**
+ * Installing someone else's pose is safe because a pose is data, not code — `parsePoses`
+ * enforces that. What it cannot tell you is whether a pose is *right*: a `four` recorded
+ * from another hand can quietly swallow your `openPalm`, because the core breaks a score
+ * tie by narrowness. So this panel's job is to show, not to reassure: every pose in a
+ * pack, every range, and every name that collides with one you already have.
+ */
+const poseLibrary = (() => {
+  const list = $('poseLibList');
+  const whereEl = $('poseLibWhere');
+  const nameBox = $<HTMLInputElement>('poseLibName');
+
+  const FINGERS: readonly FingerName[] = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+
+  /** "index 0.00–0.20 · ring 0.75–1.00", in the order fingers are on a hand. */
+  function describe(pose: PoseDescription): string {
+    const parts = FINGERS.filter((f) => pose.fingers[f]).map((f) => {
+      const curl = pose.fingers[f]?.curl;
+      return curl ? `${f} ${fmt(curl[0], 2)}–${fmt(curl[1], 2)}` : `${f} any`;
+    });
+    return parts.length > 0 ? parts.join(' · ') : 'no finger constrained — matches every hand';
+  }
+
+  function packRow(name: string): HTMLElement {
+    const summary = el('summary', {}, [el('span', { textContent: name }), el('span', { className: 'count', textContent: 'open to read' })]);
+    const body = el('div', { className: 'body', textContent: 'reading…' });
+    const pack = el('details', { className: 'pack' }, [summary, body]) as HTMLDetailsElement;
+
+    let loaded = false;
+    pack.addEventListener('toggle', () => {
+      if (!pack.open || loaded) return;
+      loaded = true;
+      void show(name, summary.lastElementChild as HTMLElement, body);
+    });
+    return pack;
+  }
+
+  async function show(name: string, count: HTMLElement, body: HTMLElement): Promise<void> {
+    const raw = await poseStore.get().read(name);
+    const { poses, problems } = parsePoses(raw);
+    count.textContent = `${poses.length} pose${poses.length === 1 ? '' : 's'}`;
+    body.replaceChildren();
+
+    for (const problem of problems) {
+      body.append(el('div', { className: 'refused', textContent: `refused — ${problem}` }));
+    }
+    if (poses.length === 0) {
+      if (problems.length === 0) body.append(el('div', { className: 'hint', textContent: 'This pack is empty.' }));
+      return;
+    }
+
+    const mine = new Set(core.getConfig().poses.map((p) => p.name));
+    const boxes = poses.map((pose) => {
+      const clashes = mine.has(pose.name);
+      const box = el('input', { type: 'checkbox' });
+      // A pose that would replace one of yours starts unticked: overwriting is a
+      // decision, and the default should never be the one you cannot undo.
+      box.checked = !clashes;
+      const who = el('div', { className: 'who', textContent: pose.name });
+      const lines: HTMLElement[] = [who];
+      if (clashes) lines.push(el('div', { className: 'clash', textContent: 'you already have a pose with this name — ticking this replaces yours' }));
+      lines.push(el('div', { className: 'range', textContent: describe(pose) }));
+      if (pose.minScore !== undefined) lines.push(el('div', { className: 'range', textContent: `minScore ${fmt(pose.minScore, 2)}` }));
+      body.append(el('div', { className: 'pose' }, [box, el('div', {}, lines)]));
+      return { box, pose };
+    });
+
+    const install = el('button', { className: 'primary', textContent: 'Install the ticked poses' });
+    install.addEventListener('click', () => {
+      const chosen = boxes.filter((b) => b.box.checked).map((b) => b.pose);
+      if (chosen.length === 0) return flash('poseLibMsg', 'Nothing ticked.', false);
+      const taken = new Set(chosen.map((p) => p.name));
+      applyConfig({ poses: [...core.getConfig().poses.filter((p) => !taken.has(p.name)), ...chosen] });
+      refreshAll();
+      flash('poseLibMsg', `Installed ${chosen.length} from ${name}.`);
+    });
+    body.append(el('div', { className: 'btns' }, [install]));
+  }
+
+  async function refresh(): Promise<void> {
+    await poseStore.ready;
+    whereEl.textContent = `Packs are read from ${poseStore.get().where}.`;
+    const names = await poseStore.get().list();
+    list.replaceChildren(
+      ...(names.length > 0
+        ? names.map(packRow)
+        : [el('div', { className: 'hint', textContent: 'No packs yet. Save your own below, or drop a JSON file in the folder.' })]),
+    );
+  }
+
+  $('btnPoseLibRefresh').addEventListener('click', () => void refresh());
+  $('btnPoseLibSave').addEventListener('click', () => {
+    void (async () => {
+      const name = nameBox.value.trim();
+      if (!/^[\p{L}\p{N}][\p{L}\p{N} _-]{0,39}$/u.test(name)) return flash('poseLibMsg', 'Name it first — letters, digits, spaces, "-" or "_".', false);
+      try {
+        await poseStore.ready;
+        await poseStore.get().write(name, core.getConfig().poses);
+        nameBox.value = '';
+        await refresh();
+        flash('poseLibMsg', `Saved ${core.getConfig().poses.length} poses as "${name}".`);
+      } catch (err) {
+        flash('poseLibMsg', (err as Error).message, false);
+      }
+    })();
+  });
+
+  void refresh();
+  return { refresh };
+})();
 
 // ── movements editor and builder ─────────────────────────────────────────────
 
@@ -2933,69 +3120,6 @@ function openPanel(id: string): void {
  * change to the menu, which is why the menu never mentions files or localStorage
  * except through `where`.
  */
-type WorkspaceStore = {
-  /** Shown to the user, so they know what "saved" bought them. */
-  readonly where: string;
-  list(): Promise<string[]>;
-  read(name: string): Promise<SerializedDockview | null>;
-  write(name: string, layout: SerializedDockview): Promise<void>;
-  remove(name: string): Promise<void>;
-};
-
-const WS_ENDPOINT = '/__workspaces';
-
-const fileStore: WorkspaceStore = {
-  where: 'bench/workspaces/',
-  async list() {
-    const res = await fetch(WS_ENDPOINT);
-    return res.ok ? ((await res.json()) as string[]) : [];
-  },
-  async read(name) {
-    const res = await fetch(`${WS_ENDPOINT}/${encodeURIComponent(name)}`);
-    return res.ok ? ((await res.json()) as SerializedDockview) : null;
-  },
-  async write(name, layout) {
-    const res = await fetch(`${WS_ENDPOINT}/${encodeURIComponent(name)}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(layout),
-    });
-    if (!res.ok) throw new Error(await res.text());
-  },
-  async remove(name) {
-    await fetch(`${WS_ENDPOINT}/${encodeURIComponent(name)}`, { method: 'DELETE' });
-  },
-};
-
-const browserStore: WorkspaceStore = {
-  where: 'this browser only',
-  async list() {
-    return (load<string[]>(LS.workspaces) ?? []).slice().sort();
-  },
-  async read(name) {
-    return load<SerializedDockview>(`${LS.workspaces}.${name}`) ?? null;
-  },
-  async write(name, layout) {
-    save(`${LS.workspaces}.${name}`, layout);
-    const names = load<string[]>(LS.workspaces) ?? [];
-    if (!names.includes(name)) save(LS.workspaces, [...names, name]);
-  },
-  async remove(name) {
-    localStorage.removeItem(`${LS.workspaces}.${name}`);
-    save(LS.workspaces, (load<string[]>(LS.workspaces) ?? []).filter((n) => n !== name));
-  },
-};
-
-/** Files when the dev server answers, this browser otherwise. Asked once. */
-let workspaces: WorkspaceStore = browserStore;
-const workspacesReady = (async () => {
-  try {
-    const res = await fetch(WS_ENDPOINT);
-    if (res.ok) workspaces = fileStore;
-  } catch {
-    // no dev server: the published bench, which keeps them in the browser for now
-  }
-})();
 
 const panelMenu = (() => {
   const button = $('btnPanels');
@@ -3032,11 +3156,11 @@ const panelMenu = (() => {
   );
 
   async function refreshWorkspaces(): Promise<void> {
-    await workspacesReady;
-    wsWhere.textContent = `Saved in ${workspaces.where}`;
+    await workspaceStore.ready;
+    wsWhere.textContent = `Saved in ${workspaceStore.get().where}`;
     let names: string[] = [];
     try {
-      names = await workspaces.list();
+      names = await workspaceStore.get().list();
     } catch {
       wsWhere.textContent = 'Could not read saved layouts';
     }
@@ -3045,7 +3169,7 @@ const panelMenu = (() => {
       ...names.map((n) => {
         const open = el('button', { type: 'button', className: 'wsopen' }, [n]);
         open.addEventListener('click', async () => {
-          const layout = await workspaces.read(n);
+          const layout = await workspaceStore.get().read(n);
           if (!layout) return;
           try {
             dock.fromJSON(layout);
@@ -3071,7 +3195,7 @@ const panelMenu = (() => {
             }, 2500);
             return;
           }
-          await workspaces.remove(n);
+          await workspaceStore.get().remove(n);
           await refreshWorkspaces();
         });
         return el('div', { className: 'wsrow' }, [open, del]);
@@ -3085,9 +3209,9 @@ const panelMenu = (() => {
       wsName.focus();
       return;
     }
-    await workspacesReady;
+    await workspaceStore.ready;
     try {
-      await workspaces.write(name, dock.toJSON());
+      await workspaceStore.get().write(name, dock.toJSON());
       wsName.value = '';
       await refreshWorkspaces();
     } catch (err) {

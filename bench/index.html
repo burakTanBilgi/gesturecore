@@ -260,6 +260,22 @@
       .ctl input[type='number'] { width: 64px; text-align: right; }
       .ctl.changed label::after { content: ' ◆'; color: var(--limit); font-size: 9px; }
 
+      /* pose library: a pack, then every pose in it in full */
+      .pack { border: 1px solid var(--frame); border-radius: var(--r); margin: 6px 0; }
+      .pack > summary { cursor: pointer; padding: 5px 8px; list-style: none; display: flex; align-items: center; gap: 8px; }
+      .pack > summary::-webkit-details-marker { display: none; }
+      .pack > summary::before { content: '▸'; color: var(--muted); }
+      .pack[open] > summary::before { content: '▾'; }
+      .pack > summary .count { color: var(--muted); font-size: 11px; margin-left: auto; }
+      .pack .body { padding: 0 8px 8px; border-top: 1px solid var(--frame); }
+      .pose { display: grid; grid-template-columns: 16px 1fr; gap: 6px; padding: 5px 0; border-bottom: 1px solid rgba(104, 158, 172, 0.12); }
+      .pose:last-child { border-bottom: 0; }
+      .pose .who { font-weight: 500; }
+      .pose .clash { color: var(--pending); font-size: 11px; }
+      .pose .range { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+      .pose .range b { color: var(--text); font-weight: 300; }
+      .refused { color: var(--fault); font-size: 11px; margin: 4px 0; }
+
       /* A slider's own track carries the reading it cuts: one needle per finger, live.
          Inset by half the 7px thumb, so a needle at x lines up with the handle at x. */
       .ctl .track { position: relative; width: 100%; }
@@ -600,6 +616,24 @@
           <p class="hint" id="mvHint"></p>
           <div class="btns"><button id="mvAdd" class="primary">Add movement</button></div>
           <div id="mvMsg"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Pose library</legend>
+          <p class="hint">
+            Packs of poses kept as files, so they can be shared. A pose is plain data — a name and some number
+            ranges — so a pack cannot run anything; the reader refuses any key it was not expecting. What a pack
+            <i>can</i> be is wrong for your hand, or wide enough to swallow a pose you already have, so every pose
+            is shown in full below before you install it. Read them; they are short on purpose.
+          </p>
+          <div class="btns">
+            <button id="btnPoseLibRefresh">Refresh</button>
+            <input type="text" id="poseLibName" placeholder="name this pack" maxlength="40" />
+            <button id="btnPoseLibSave">Save my poses</button>
+          </div>
+          <div id="poseLibWhere" class="hint"></div>
+          <div id="poseLibList"></div>
+          <div id="poseLibMsg"></div>
         </fieldset>
 
         <fieldset>

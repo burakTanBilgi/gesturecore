@@ -24,6 +24,12 @@ describe('parsePoses: what it accepts', () => {
     expect('minScore' in poses[0]!).toBe(false);
   });
 
+  it('accepts a name in any language, because people do not all name things in English', () => {
+    for (const name of ['üç', 'ç bükümü', 'три', '三', 'niño', 'pose 2']) {
+      expect(one({ name, fingers: {} }).problems).toEqual([]);
+    }
+  });
+
   it('accepts a finger with no curl: an empty constraint is not an error', () => {
     expect(one({ name: 'any', fingers: { thumb: {} } }).problems).toEqual([]);
   });

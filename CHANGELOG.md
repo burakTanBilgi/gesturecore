@@ -38,6 +38,18 @@ gesturecore-chords are new, at 0.1.0.
     a brief loss of the letter, `releaseGraceMs`) and `latch` (holds until the next).
   - Pure and fully tested: `readChord` is a function of one frame's readings, and
     `ChordReader` only adds the memory a trigger needs.
+- **gesturecore:** `parsePoses` — reads poses out of data this library did not write and
+  returns only what is unmistakably a pose, with a line about each thing it refused. A
+  whitelist rather than a filter: every key is named in advance, so a file that grows a
+  field is rejected loudly instead of accepted with a surprise in it. Names may be in any
+  script but cannot be markup; `__proto__`, `constructor` and `prototype` are refused
+  anywhere; nothing is ever merged into an existing object.
+- Bench: **Gestures → Pose library**. Pose packs are JSON files in `bench/poses/`, listed
+  through the same store interface as workspaces. Opening one shows every pose in it in
+  full — each finger's range, and a warning on any name that would replace one of yours,
+  which starts unticked. **Save my poses** writes your current set back as a pack.
+  `bench/poses/example-counting.json` holds `peace`, `three` and `four`; its numbers were
+  written rather than measured, and its README says so.
 - **gesturecore-chords:** `requireEngaged` (default on) and `playOnEngage` (default off),
   both switchable from the Chords panel. The core names a pose the moment it recognises
   the shape, well before the engage dwell finishes, so the reader used to sound a chord

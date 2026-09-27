@@ -31,8 +31,24 @@ that swallows your `openPalm`, a name that shadows one of yours. The library sho
 every pose in full before you install it, and poses are small enough to actually read.
 That reading is the review, and nothing here replaces it.
 
+## About `example-counting.json`
+
+It holds `peace`, `three` and `four` — the three poses the chord brick needs and the core
+does not ship. **Its numbers were written, not measured.** No hand was recorded to produce
+them; they are a plausible description of each shape, so that the format has an example
+and the chord scale can be tried before you own a recording of your own hand.
+
+Treat it as a starting point. If `peace` will not hold, or `three` keeps scoring as
+`four`, the pack is wrong for your hand and no amount of tuning the thresholds will fix
+that — re-record it.
+
+One thing in it is not arbitrary. `four` constrains the **thumb** to be tucked. Without
+that it would constrain only the four fingers, and the core breaks a tie in score by
+narrowness, so a thumbless `four` beats `openPalm` on a genuinely open hand and quietly
+takes over the letter E. Whatever you record, keep the thumb in `four`.
+
 ## Recording your own
 
 **Gestures → Record a pose** reads your real finger curls, so a pose fits the hand that
-recorded it. A pack written for someone else's hand is a starting point, not a fit — this
-folder ships empty on purpose, because invented ranges that half-work are worse than none.
+recorded it. That is always better than a pack someone else wrote, including this one.
+Tick **include thumb** whenever the thumb is what makes the shape different.

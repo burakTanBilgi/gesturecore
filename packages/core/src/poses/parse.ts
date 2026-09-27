@@ -18,8 +18,13 @@ import type { FingerName, PoseDescription } from '../types.js';
 
 const FINGERS: readonly FingerName[] = ['thumb', 'index', 'middle', 'ring', 'pinky'];
 
-/** Letters, digits, space, dash, underscore. Enough to name a pose, not enough to be markup. */
-const NAME = /^[A-Za-z0-9 _-]{1,40}$/;
+/**
+ * Letters, digits and marks in any script, plus space, dash and underscore. Enough to
+ * name a pose in the language you think in — `üç`, `три`, `三` — and not enough to be
+ * markup, a selector, or a line of anything. Quotes, angle brackets, control characters
+ * and newlines are all outside it.
+ */
+const NAME = /^[\p{L}\p{N}\p{M} _-]{1,40}$/u;
 
 /** More than anyone will actually read through before installing, which is the point. */
 const MAX_POSES = 64;
