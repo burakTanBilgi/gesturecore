@@ -103,6 +103,11 @@ gesturecore-chords are new, at 0.1.0.
 
 ### Fixed
 
+- Bench: **Save to test/fixtures** works on any port. Its origin guard hardcoded `:5173`,
+  so the moment the bench moved to 5174 because 5173 was taken, saving a fixture returned
+  403 — a guard that silently rejects the real caller presents as a bug rather than as a
+  refusal. All three endpoints that write into the project now share one check.
+
 - `npm run build` works. `gesturecore-sound` and `gesturecore-head` typed their builds
   against the core's *source*, which pulled `.ts` from outside their `rootDir`: TS6059,
   no output, and — worse, because it was silent — stray `.js` and `.d.ts` left next to

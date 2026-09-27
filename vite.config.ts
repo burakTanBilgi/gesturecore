@@ -136,23 +136,17 @@ function saveFixtures(): Plugin {
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use('/__fixtures', (req, res) => {
+        // Who is asking, before what they are asking for: a foreign page should not be
+        // able to tell a bad name from a good one here.
+        if (!fromTheBench(req as never, true)) {
+          res.statusCode = 403;
+          res.end('forbidden');
+          return;
+        }
         const name = (req.url ?? '').replace(/^\//, '');
         if (req.method !== 'POST' || !/^[a-z][a-z0-9-]{0,40}$/.test(name)) {
           res.statusCode = 400;
           res.end('bad request');
-          return;
-        }
-        // This endpoint writes into the project, so only the bench itself may call it.
-        // Any other web page open in the same browser could otherwise post here: reject
-        // cross-site requests, and require a JSON content type, which a foreign page
-        // cannot send without a CORS preflight this server never grants.
-        const site = req.headers['sec-fetch-site'];
-        const origin = req.headers.origin;
-        const sameOrigin = origin === undefined || /^http:\/\/(127\.0\.0\.1|localhost):5173$/.test(origin);
-        const json = (req.headers['content-type'] ?? '').startsWith('application/json');
-        if ((site !== undefined && site !== 'same-origin') || !sameOrigin || !json) {
-          res.statusCode = 403;
-          res.end('forbidden');
           return;
         }
         let body = '';
@@ -206,9 +200,13 @@ function saveFixtures(): Plugin {
  * Only the bench itself may reach an endpoint that writes into the project. A foreign
  * page open in the same browser could otherwise post here, so: reject anything that is
  * not same-origin, and require a JSON content type, which a cross-site page cannot send
- * without a CORS preflight this server never grants. Unlike the fixtures endpoint this
- * does not pin a port — the bench moves to 5174 when 5173 is taken, and a guard that
- * silently rejects the real port is worse than no guard, because it looks like a bug.
+ * without a CORS preflight this server never grants.
+ *
+ * Deliberately not pinned to a port. The fixtures endpoint used to hardcode 5173, so
+ * "Save to test/fixtures" returned 403 whenever the bench had moved to 5174 because
+ * 5173 was taken — a guard that silently rejects the real caller is worse than no guard,
+ * because it presents as a bug rather than as a refusal. Every endpoint that writes into
+ * the project now uses this one function, so there is one rule to get right.
  */
 function fromTheBench(req: { method?: string; headers: Record<string, unknown> }, needsJson: boolean): boolean {
   const site = req.headers['sec-fetch-site'];
