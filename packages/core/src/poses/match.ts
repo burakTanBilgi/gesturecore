@@ -60,6 +60,8 @@ function specificity(pose: PoseDescription | undefined): { fingers: number; widt
 /**
  * The highest-scoring pose that reaches its own minScore, or null.
  *
+ * Poses with `enabled: false` are skipped entirely.
+ *
  * Equal scores go to the more specific pose — more fingers constrained, then
  * narrower ranges — and only then to the one listed first. Without that, a pose
  * that overlaps a broader one (a thumbs-up against a fist, or anything recorded
@@ -71,6 +73,9 @@ export function bestPose(matches: readonly PoseMatch[], poses: readonly PoseDesc
   let best: PoseMatch | null = null;
   let bestSpec = { fingers: 0, width: 0 };
   matches.forEach((m, i) => {
+    // Switched off: still scored above, never held. Same bargain as a pinch finger that
+    // is measured but not enabled.
+    if (poses[i]?.enabled === false) return;
     const min = poses[i]?.minScore ?? DEFAULT_MIN_SCORE;
     if (m.score < min) return;
     if (best === null) {

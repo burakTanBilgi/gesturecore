@@ -165,3 +165,36 @@ describe('matchPoses and bestPose', () => {
     expect(bestPose([], [])).toBeNull();
   });
 });
+
+describe('poses that are switched off', () => {
+  const pose = (name: string, curl: [number, number], over: Partial<PoseDescription> = {}): PoseDescription => ({
+    name,
+    fingers: { index: { curl } },
+    ...over,
+  });
+  const curls = (index: number) => ({ curls: [0, index, 0, 0, 0] });
+
+  it('a disabled pose never wins, even when it scores highest', () => {
+    const poses = [pose('off', [0, 0.1], { enabled: false }), pose('on', [0, 0.6])];
+    const matches = matchPoses(curls(0.05), poses, 0.15);
+    expect(matches.map((m) => m.name)).toEqual(['off', 'on']);
+    expect(bestPose(matches, poses)?.name).toBe('on');
+  });
+
+  it('is still scored, so a panel can show what it would have matched', () => {
+    const poses = [pose('off', [0, 0.1], { enabled: false })];
+    expect(matchPoses(curls(0.05), poses, 0.15)[0]).toEqual({ name: 'off', score: 1 });
+  });
+
+  it('absent and true both mean on, so existing configs are unaffected', () => {
+    for (const over of [{}, { enabled: true }]) {
+      const poses = [pose('p', [0, 0.1], over)];
+      expect(bestPose(matchPoses(curls(0.05), poses, 0.15), poses)?.name).toBe('p');
+    }
+  });
+
+  it('switching every pose off leaves no pose held rather than picking a bad one', () => {
+    const poses = [pose('a', [0, 0.1], { enabled: false }), pose('b', [0, 0.2], { enabled: false })];
+    expect(bestPose(matchPoses(curls(0.05), poses, 0.15), poses)).toBe(null);
+  });
+});

@@ -38,6 +38,16 @@ gesturecore-chords are new, at 0.1.0.
     a brief loss of the letter, `releaseGraceMs`) and `latch` (holds until the next).
   - Pure and fully tested: `readChord` is a function of one frame's readings, and
     `ChordReader` only adds the memory a trigger needs.
+- **gesturecore:** poses can be switched off and can say when they were added.
+  `PoseDescription.enabled` (absent means on, so older configs are unaffected) — a
+  disabled pose is still scored, so a panel can show what it would have matched, but
+  `bestPose` never picks it, the same bargain as a pinch finger that is measured but not
+  ticked. `PoseDescription.addedAt` is an ISO date, carried and never read by the matcher.
+- Bench: every pose in **Moves** has a switch beside it and says when it was added — the
+  control sits on the row that shows the gesture firing rather than in another panel.
+  Recording a pose stamps it; installing one from a pack stamps it unless the pack
+  already says when it was made. Switching off the engage pose says so on the row,
+  because with it off no hand can engage at all.
 - **gesturecore:** `parsePoses` — reads poses out of data this library did not write and
   returns only what is unmistakably a pose, with a line about each thing it refused. A
   whitelist rather than a filter: every key is named in advance, so a file that grows a

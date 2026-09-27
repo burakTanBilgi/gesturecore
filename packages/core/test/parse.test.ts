@@ -30,6 +30,22 @@ describe('parsePoses: what it accepts', () => {
     }
   });
 
+  it('accepts a pose that says when it was added and whether it is on', () => {
+    const { poses, problems } = one({ name: 'p', fingers: {}, enabled: false, addedAt: '2026-09-27T01:20:00.000Z' });
+    expect(problems).toEqual([]);
+    expect(poses[0]).toEqual({ name: 'p', fingers: {}, enabled: false, addedAt: '2026-09-27T01:20:00.000Z' });
+    expect(one({ name: 'p', fingers: {}, addedAt: '2026-09-27' }).problems).toEqual([]);
+  });
+
+  it('refuses an addedAt that is not a real date, or an enabled that is not a boolean', () => {
+    for (const addedAt of ['yesterday', '2026-13-45', '', 0, null, '2026-09-27T99:99:99Z']) {
+      expect(one({ name: 'p', fingers: {}, addedAt }).poses).toEqual([]);
+    }
+    for (const enabled of ['true', 1, 0, null]) {
+      expect(one({ name: 'p', fingers: {}, enabled }).poses).toEqual([]);
+    }
+  });
+
   it('accepts a finger with no curl: an empty constraint is not an error', () => {
     expect(one({ name: 'any', fingers: { thumb: {} } }).problems).toEqual([]);
   });

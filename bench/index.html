@@ -276,6 +276,12 @@
       .pose .range b { color: var(--text); font-weight: 300; }
       .refused { color: var(--fault); font-size: 11px; margin: 4px 0; }
 
+      /* a gesture switched off: still listed, visibly not in play */
+      .move .top input[type='checkbox'] { margin-right: 2px; }
+      .move.off { opacity: 0.55; }
+      .move.off .nm { text-decoration: line-through; text-decoration-color: var(--raw); }
+      .move .when { color: var(--muted); font-size: 10px; margin-top: 3px; }
+
       /* A slider's own track carries the reading it cuts: one needle per finger, live.
          Inset by half the 7px thumb, so a needle at x lines up with the handle at x. */
       .ctl .track { position: relative; width: 100%; }

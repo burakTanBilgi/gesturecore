@@ -26,6 +26,13 @@ const FINGERS: readonly FingerName[] = ['thumb', 'index', 'middle', 'ring', 'pin
  */
 const NAME = /^[\p{L}\p{N}\p{M} _-]{1,40}$/u;
 
+/** An ISO 8601 date or instant, and one a calendar agrees with — not just one shaped right. */
+function isDate(v: unknown): v is string {
+  if (typeof v !== 'string') return false;
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})?)?$/.test(v)) return false;
+  return !Number.isNaN(Date.parse(v));
+}
+
 /** More than anyone will actually read through before installing, which is the point. */
 const MAX_POSES = 64;
 
@@ -67,7 +74,9 @@ function readPose(v: unknown, where: string): PoseDescription | string {
   const keys = keysOf(v);
   for (const k of keys) {
     if (DANGEROUS.has(k)) return `${where}: refusing the key "${k}"`;
-    if (k !== 'name' && k !== 'fingers' && k !== 'minScore') return `${where}: unknown key "${k}"`;
+    if (k !== 'name' && k !== 'fingers' && k !== 'minScore' && k !== 'enabled' && k !== 'addedAt') {
+      return `${where}: unknown key "${k}"`;
+    }
   }
 
   const name: unknown = v['name'];
@@ -103,6 +112,16 @@ function readPose(v: unknown, where: string): PoseDescription | string {
     const minScore: unknown = v['minScore'];
     if (!isNum(minScore, 0, 1)) return `${name}: "minScore" must be a number in 0..1`;
     pose.minScore = minScore;
+  }
+  if ('enabled' in v) {
+    const enabled: unknown = v['enabled'];
+    if (typeof enabled !== 'boolean') return `${name}: "enabled" must be true or false`;
+    pose.enabled = enabled;
+  }
+  if ('addedAt' in v) {
+    const addedAt: unknown = v['addedAt'];
+    if (!isDate(addedAt)) return `${name}: "addedAt" must be an ISO 8601 date, like 2026-09-27`;
+    pose.addedAt = addedAt;
   }
   return pose;
 }

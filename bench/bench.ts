@@ -1931,14 +1931,48 @@ const moves = (() => {
 
   const held = (name: string) => LABELS.some((l) => core.getHandState(l)?.pose === name);
 
-  function row(kind: string, name: string, how: string, num: string, on: () => boolean): Row {
+  /**
+   * `toggle` turns the catalogue entry into its own switch, which is the point: the
+   * control for a gesture belongs beside the row that shows it firing, not in another
+   * panel. Only poses have one so far — the core can switch a pose off the same way a
+   * pinch finger can be unticked.
+   */
+  function row(
+    kind: string,
+    name: string,
+    how: string,
+    num: string,
+    on: () => boolean,
+    toggle?: { enabled: boolean; added?: string; set(enabled: boolean): void },
+  ): Row {
     const live = el('div', { className: 'live', textContent: 'idle' });
-    const box = el('div', { className: 'move' }, [
-      el('div', { className: 'top' }, [el('span', { className: 'nm', textContent: name }), el('span', { className: 'kind', textContent: kind }), live]),
-      el('p', { className: 'how', textContent: how }),
-      el('div', { className: 'num', textContent: num }),
-    ]);
+    const top: HTMLElement[] = [el('span', { className: 'nm', textContent: name }), el('span', { className: 'kind', textContent: kind })];
+    const box = el('div', { className: 'move' }, [el('div', { className: 'top' }, [...top, live])]);
+
+    if (toggle) {
+      const check = el('input', { type: 'checkbox' });
+      check.checked = toggle.enabled;
+      check.title = toggle.enabled ? 'switch this gesture off' : 'switch this gesture on';
+      check.addEventListener('change', () => toggle.set(check.checked));
+      box.classList.toggle('off', !toggle.enabled);
+      box.firstElementChild!.prepend(check);
+    }
+    box.append(el('p', { className: 'how', textContent: how }), el('div', { className: 'num', textContent: num }));
+    if (toggle?.added) {
+      box.append(el('div', { className: 'when', textContent: `added ${whenever(toggle.added)}` }));
+    }
     return { el: box, live, on };
+  }
+
+  /** "today", "3 days ago", or the date once that stops being the useful thing to say. */
+  function whenever(iso: string): string {
+    const then = Date.parse(iso);
+    if (Number.isNaN(then)) return iso;
+    const days = Math.floor((Date.now() - then) / 86_400_000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 14) return `${days} days ago`;
+    return new Date(then).toISOString().slice(0, 10);
   }
 
   function build(): void {
@@ -1969,7 +2003,24 @@ const moves = (() => {
       const ranges = Object.entries(p.fingers)
         .map(([finger, spec]) => `${finger} ${spec?.curl ? `${spec.curl[0]}–${spec.curl[1]}` : '—'}`)
         .join('   ');
-      add(row('pose', p.name, HOW[p.name] ?? 'Custom pose recorded from your hand.', `curl ${ranges}`, () => held(p.name)));
+      const enabled = p.enabled !== false;
+      // Switching off the engage pose locks every hand out, which is worth saying on the
+      // row rather than leaving someone to discover that nothing works any more.
+      const how =
+        (HOW[p.name] ?? 'Custom pose recorded from your hand.') +
+        (p.name === cfg.engage.pose && !enabled ? ' — this is the engage pose, and with it off no hand can engage at all.' : '');
+      add(
+        row('pose', p.name, how, `curl ${ranges}`, () => held(p.name), {
+          enabled,
+          ...(p.addedAt === undefined ? {} : { added: p.addedAt }),
+          set(next) {
+            applyConfig({
+              poses: core.getConfig().poses.map((q) => (q.name === p.name ? { ...q, enabled: next } : q)),
+            });
+            refreshAll();
+          },
+        }),
+      );
     }
 
     group('pinches — thumb to a fingertip');
@@ -2006,7 +2057,15 @@ const moves = (() => {
   function update(): void {
     if (!shows('moves')) return;
     const cfg = core.getConfig();
-    const k = [cfg.engage.pose, ...cfg.poses.map((p) => p.name), ...cfg.pinch.fingers, ...cfg.motions.map((m) => m.name)].join('|');
+    // `enabled` is in the key as well as the name: a pose switched off changes how its
+    // row is drawn and what its description says, and without it the list would keep
+    // showing the state the pose was in when it was built.
+    const k = [
+      cfg.engage.pose,
+      ...cfg.poses.map((p) => `${p.name}:${p.enabled !== false}:${p.addedAt ?? ''}`),
+      ...cfg.pinch.fingers,
+      ...cfg.motions.map((m) => m.name),
+    ].join('|');
     if (k !== key) {
       key = k;
       build();
@@ -2351,7 +2410,12 @@ const poseLibrary = (() => {
 
     const install = el('button', { className: 'primary', textContent: 'Install the ticked poses' });
     install.addEventListener('click', () => {
-      const chosen = boxes.filter((b) => b.box.checked).map((b) => b.pose);
+      // A pack that carries its own date is saying when the pose was made; keep that.
+      // Otherwise stamp now, because installing it is when it came into being for you.
+      const now = new Date().toISOString();
+      const chosen = boxes
+        .filter((b) => b.box.checked)
+        .map((b) => (b.pose.addedAt === undefined ? { ...b.pose, addedAt: now } : b.pose));
       if (chosen.length === 0) return flash('poseLibMsg', 'Nothing ticked.', false);
       const taken = new Set(chosen.map((p) => p.name));
       applyConfig({ poses: [...core.getConfig().poses.filter((p) => !taken.has(p.name)), ...chosen] });
@@ -2666,7 +2730,9 @@ const poseRecorder = (() => {
     const fitted = fitPose(name, curls.map((c) => ({ curls: c })), { margin: tol });
     const fingers: PoseDescription['fingers'] = { ...fitted.pose.fingers };
     if (!withThumb) delete fingers.thumb;
-    const pose: PoseDescription = { name, fingers };
+    // Stamped now: a pose you recorded six weeks ago and a pose you recorded today look
+    // identical otherwise, and which is which is usually what you want to know.
+    const pose: PoseDescription = { name, fingers, addedAt: new Date().toISOString() };
     const poses = core.getConfig().poses.filter((p) => p.name !== name);
     poses.push(pose);
     applyConfig({ poses });

@@ -79,6 +79,19 @@ export type PoseDescription = {
   fingers: Partial<Record<FingerName, { curl?: [number, number] }>>;
   /** Minimum score for the pose to count as held. Default 0.8. */
   minScore?: number;
+  /**
+   * Whether this pose can be held. Absent means yes, so an older config is unaffected.
+   * A disabled pose is still scored — a panel can show what it would have matched — but
+   * `bestPose` never picks it, the same way an unticked finger is still measured but
+   * never pinches.
+   */
+  enabled?: boolean;
+  /**
+   * When this pose was recorded or added, as an ISO 8601 date or instant. Carried, never
+   * read by the matcher: it is here so a pose can say where it came from, including
+   * inside a pack someone else shares.
+   */
+  addedAt?: string;
 };
 
 export type PoseMatch = { name: string; score: number };
