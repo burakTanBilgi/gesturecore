@@ -7,7 +7,7 @@ build on it.**
 [the demo](https://gesturecore.vercel.app/bench/?demo) with recorded hands. Nothing leaves your
 browser.
 
-![The gesturecore bench: a recorded hand pinching, with every measurement, timer and pose score live](docs/screenshots/bench.png)
+![The gesturecore bench: a recorded hand pinching. Measurements are drawn in grey and colour is kept for state, so the green bars are the three timers that have actually filled. The tuning sliders on the right carry grey needles showing the live reading each threshold cuts.](docs/screenshots/bench.png)
 
 This repository is a small family of packages. The core stands alone; every other
 package is a *brick*: optional, independent, and something the core never knows about.
@@ -91,11 +91,11 @@ synthetic face that nods, shakes, tilts, blinks and raises its brows.
 
 | Every gesture the core knows, lit while it happens | The hand-driven wave field, as its own panel |
 | --- | --- |
-| ![Moves panel](docs/screenshots/moves.png) | ![Field panel](docs/screenshots/field.png) |
+| ![The Moves catalogue: every gesture the core knows, each with a switch and the numbers it is judged by, lit while it happens](docs/screenshots/moves.png) | ![Field panel](docs/screenshots/field.png) |
 
 ![The Head panel: the demo face tilting right, with its angles, eyes, expression timers and the log](docs/screenshots/head.png)
 
-![The manual](docs/screenshots/docs.png)
+![The manual: its own page, with a table of contents and the frame-to-events pipeline drawn out](docs/screenshots/docs.png)
 
 ```bash
 npm install
